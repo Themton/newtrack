@@ -4,16 +4,26 @@
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxudnlhZnR1bXl3aWNndG90b3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNzE1NjcsImV4cCI6MjA5NTk0NzU2N30.Ymj0QMrzkFZz1QmCqbL0P5lsFmFQzswkbvsLEh3SbB4";
 
-// Training (sandbox) ของ Flash — ขึ้น Production จริงให้เปลี่ยนเป็น https://api.flashexpress.com
-const FLASH_API = "https://api-training.flashexpress.com";
+// ─────────────────────────────────────────────────────────────
+//  สลับสภาพแวดล้อมที่นี่ที่เดียว:  "production"  หรือ  "training"
+// ─────────────────────────────────────────────────────────────
+const ENV = "production";
 
-const FLASH_ACCOUNTS = {
-  // Training ENV
-  "CA5610": "0bc50ae59546a42fe64dca031005fdb1528486214ec0a4c01551d4f7f762a84c",
-  // Production (เปิดใช้เมื่อขึ้นจริง + สลับ FLASH_API ด้านบน):
-  // "CBC9351": "0d0b630e5e245149fe120a062c342b3f41ffaea51597464841e97d324b792334",
-  // "CBF1654": "976a16aac51569cb55b055c0665fef802d77a8dfad05b277b6fe312985e360e3",
-};
+const FLASH_API = ENV === "training"
+  ? "https://api-training.flashexpress.com"
+  : "https://api.flashexpress.com";
+
+const FLASH_ACCOUNTS = ENV === "training"
+  ? {
+      "CA5610": "0bc50ae59546a42fe64dca031005fdb1528486214ec0a4c01551d4f7f762a84c",
+    }
+  : {
+      "CBC9351": "0d0b630e5e245149fe120a062c342b3f41ffaea51597464841e97d324b792334",
+      "CBF1654": "976a16aac51569cb55b055c0665fef802d77a8dfad05b277b6fe312985e360e3",
+    };
+
+// บัญชีเริ่มต้น (ใช้เมื่อ request ไม่ได้ระบุ mchId)
+const DEFAULT_MCH = ENV === "training" ? "CA5610" : "CBC9351";
 
 const BATCH = 200;
 const DELAY = 250;
@@ -104,7 +114,7 @@ async function syncFlash() {
 
   for (let i = 0; i < parcels.length; i++) {
     const p = parcels[i];
-    const mchId = shopMap[p.shop_id] || "CA5610";
+    const mchId = shopMap[p.shop_id] || DEFAULT_MCH;
     try {
       const r = await getTracking(p.flash_pno, mchId);
       if (r && r.code === 1 && r.data) {
@@ -161,7 +171,7 @@ export default {
 
     if (url.pathname === "/test") {
       const pno = url.searchParams.get("pno") || "";
-      const mchId = url.searchParams.get("mch") || "CA5610";
+      const mchId = url.searchParams.get("mch") || DEFAULT_MCH;
       if (!pno) return json({ error: "ต้องระบุ ?pno=TH..." });
       const r = await getTracking(pno, mchId);
       return json({ pno, mchId, flash_response: r });
@@ -183,21 +193,21 @@ export default {
     // ═══ FLASH SECURE API ═══
     if (url.pathname === "/flash-api/ping" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      return json(await callFlash("/open/v1/ping", {}, body.mchId || "CA5610"));
+      return json(await callFlash("/open/v1/ping", {}, body.mchId || DEFAULT_MCH));
     }
     if (url.pathname === "/flash-api/create" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      const mchId = body.mchId || "CA5610"; delete body.mchId;
+      const mchId = body.mchId || DEFAULT_MCH; delete body.mchId;
       return json(await callFlash("/open/v1/orders", body, mchId));
     }
     if (url.pathname === "/flash-api/cancel" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      const mchId = body.mchId || "CA5610";
+      const mchId = body.mchId || DEFAULT_MCH;
       return json(await callFlash("/open/v1/orders/" + body.pno + "/cancel", { pno: body.pno }, mchId));
     }
     if (url.pathname === "/flash-api/tracking" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      const mchId = body.mchId || "CA5610";
+      const mchId = body.mchId || DEFAULT_MCH;
       const pnos = body.pnos || "";
       if (!pnos) return json({ code: -1, message: "pnos required" });
       return json(await callFlash("/open/v1/orders/routesBatch", { pnos }, mchId));
