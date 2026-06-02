@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLASH TRACK — เช็คสถานะพัสดุ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=Anuphan:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="stripes"></div>
+<nav class="nav">
+  <a href="index.html" class="brand"><span class="bolt">⚡</span>FLASH<b>TRACK</b></a>
+  <a href="admin.html" class="nav-link">เข้าระบบพนักงาน →</a>
+</nav>
+
+<header class="hero">
+  <div class="hero-inner">
+    <span class="kicker">ติดตามพัสดุด่วน</span>
+    <h1>เช็คสถานะพัสดุของคุณ</h1>
+    <p>กรอกหมายเลขพัสดุเพื่อดูสถานะและประวัติการขนส่งล่าสุด</p>
+    <form class="search" id="searchForm" autocomplete="off">
+      <input id="trackInput" type="text" placeholder="เช่น FL1234567890" inputmode="latin" />
+      <button class="btn" type="submit">ติดตามพัสดุ</button>
+    </form>
+    <p class="hint">ลองตัวอย่าง: <a href="#" id="demoLink" class="mono">FL1234567890</a></p>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- loading -->
+  <div id="loading" class="card hidden"><div class="state"><div class="spinner"></div>กำลังค้นหาพัสดุ…</div></div>
+
+  <!-- not found -->
+  <div id="notfound" class="card hidden"><div class="state">
+    <span class="ico">🔍</span>
+    <h3 style="margin:0 0 6px">ไม่พบหมายเลขพัสดุนี้</h3>
+    <p style="margin:0">โปรดตรวจสอบหมายเลขอีกครั้ง หรือสอบถามผู้ส่ง</p>
+  </div></div>
+
+  <!-- error -->
+  <div id="errorBox" class="card hidden"><div class="state">
+    <span class="ico">⚠️</span>
+    <h3 style="margin:0 0 6px">เกิดข้อผิดพลาด</h3>
+    <p id="errorMsg" style="margin:0"></p>
+  </div></div>
+
+  <!-- result -->
+  <section id="result" class="card hidden fade-in">
+    <div class="res-head">
+      <div>
+        <div class="label">หมายเลขพัสดุ</div>
+        <div class="tno mono" id="resTno"></div>
+      </div>
+      <span class="badge" id="resBadge"></span>
+    </div>
+    <div class="card-pad">
+      <div class="flow" id="flow"></div>
+      <h3 style="margin:0 0 12px;font-size:1.1rem">ประวัติการขนส่ง</h3>
+      <ul class="timeline" id="timeline"></ul>
+      <div class="info" id="info"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">FLASH TRACK · ระบบติดตามพัสดุ — ตัวอย่างเพื่อการศึกษา</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="assets/config.js"></script>
+<script src="assets/statuses.js"></script>
+<script src="assets/track.js"></script>
+</body>
+</html>
