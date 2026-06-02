@@ -15,7 +15,7 @@ const FLASH_ACCOUNTS = [
   { name: "CBC9351", mchId: "CBC9351" },
   { name: "CBF1654", mchId: "CBF1654" },
 ];
-const WORKER_URL = "https://upabase-proxy.themtja.workers.dev";
+const WORKER_URL = "https://newtrack-proxy.themtja.workers.dev";
 
 // Flash Express API — calls Worker (keys are in Worker, NOT here)
 const flashApi = {
