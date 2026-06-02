@@ -1,13 +1,18 @@
 // ===== Flash Proxy + Auto-Sync Worker v2.0 (trackmt) =====
 // Flash API Proxy + Supabase Proxy + Auto-Sync สถานะ Flash
 
-const SB_URL = "https://fnkohtdpwdwedjrtklre.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZua29odGRwd2R3ZWRqcnRrbHJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNTA3MjIsImV4cCI6MjA4ODkyNjcyMn0.AuotNxQWgKiSYpS7kLBMm3jOCFhJWsXy31yaqG6dwic";
-const FLASH_PROD = "https://api.flashexpress.com";
+const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxudnlhZnR1bXl3aWNndG90b3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNzE1NjcsImV4cCI6MjA5NTk0NzU2N30.Ymj0QMrzkFZz1QmCqbL0P5lsFmFQzswkbvsLEh3SbB4";
+
+// Training (sandbox) ของ Flash — ขึ้น Production จริงให้เปลี่ยนเป็น https://api.flashexpress.com
+const FLASH_API = "https://api-training.flashexpress.com";
 
 const FLASH_ACCOUNTS = {
-  "CBC9351": "0d0b630e5e245149fe120a062c342b3f41ffaea51597464841e97d324b792334",
-  "CBF1654": "976a16aac51569cb55b055c0665fef802d77a8dfad05b277b6fe312985e360e3",
+  // Training ENV
+  "CA5610": "0bc50ae59546a42fe64dca031005fdb1528486214ec0a4c01551d4f7f762a84c",
+  // Production (เปิดใช้เมื่อขึ้นจริง + สลับ FLASH_API ด้านบน):
+  // "CBC9351": "0d0b630e5e245149fe120a062c342b3f41ffaea51597464841e97d324b792334",
+  // "CBF1654": "976a16aac51569cb55b055c0665fef802d77a8dfad05b277b6fe312985e360e3",
 };
 
 const BATCH = 200;
@@ -28,7 +33,7 @@ async function callFlash(path, params, mchId) {
   params.sign = await flashSign(params, apiKey);
   const body = new URLSearchParams(params).toString();
   try {
-    const res = await fetch(FLASH_PROD + path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+    const res = await fetch(FLASH_API + path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
     return await res.json();
   } catch (e) { return { code: -1, message: e.message }; }
 }
@@ -47,6 +52,8 @@ async function broadcastChange() {
   try { await sbQuery("fx_settings?key=eq.last_updated", { method: "PATCH", body: { value: String(Date.now()) }, prefer: "return=minimal" }); } catch {}
 }
 
+// fallback เมื่อ Flash ไม่ส่ง stateText มา (ปกติจะใช้ data.stateText จริงก่อน)
+// ยืนยันตรงกับเอกสาร Flash: 1=รับพัสดุแล้ว, 5=เซ็นรับแล้ว
 function stateText(s) {
   return { 1: "รับพัสดุแล้ว", 2: "ระหว่างการขนส่ง", 3: "กำลังจัดส่ง", 4: "ส่งคืน", 5: "เซ็นรับแล้ว", 6: "คืนสำเร็จ" }[s] || "ระหว่างการขนส่ง";
 }
@@ -62,7 +69,7 @@ async function getTracking(pno, preferMchId) {
       const p = { mchId, nonceStr: String(Date.now()) + Math.random().toString(36).slice(2, 6) };
       p.sign = await flashSign(p, apiKey);
       const body = new URLSearchParams(p).toString();
-      const r = await fetch(FLASH_PROD + "/open/v1/orders/" + pno + "/routes", {
+      const r = await fetch(FLASH_API + "/open/v1/orders/" + pno + "/routes", {
         method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" }, body
       });
       if (!r.ok) continue;
@@ -97,11 +104,11 @@ async function syncFlash() {
 
   for (let i = 0; i < parcels.length; i++) {
     const p = parcels[i];
-    const mchId = shopMap[p.shop_id] || "CBC9351";
+    const mchId = shopMap[p.shop_id] || "CA5610";
     try {
       const r = await getTracking(p.flash_pno, mchId);
       if (r && r.code === 1 && r.data) {
-        const newStatus = stateText(r.data.state);
+        const newStatus = r.data.stateText || stateText(r.data.state);
         const latestRoute = r.data.routes?.[0];
         const detail = latestRoute?.message || "";
         const updatedAt = latestRoute?.routedAt ? new Date(latestRoute.routedAt * 1000).toISOString() : null;
@@ -154,7 +161,7 @@ export default {
 
     if (url.pathname === "/test") {
       const pno = url.searchParams.get("pno") || "";
-      const mchId = url.searchParams.get("mch") || "CBC9351";
+      const mchId = url.searchParams.get("mch") || "CA5610";
       if (!pno) return json({ error: "ต้องระบุ ?pno=TH..." });
       const r = await getTracking(pno, mchId);
       return json({ pno, mchId, flash_response: r });
@@ -176,21 +183,21 @@ export default {
     // ═══ FLASH SECURE API ═══
     if (url.pathname === "/flash-api/ping" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      return json(await callFlash("/open/v1/ping", {}, body.mchId || "CBC9351"));
+      return json(await callFlash("/open/v1/ping", {}, body.mchId || "CA5610"));
     }
     if (url.pathname === "/flash-api/create" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      const mchId = body.mchId || "CBC9351"; delete body.mchId;
+      const mchId = body.mchId || "CA5610"; delete body.mchId;
       return json(await callFlash("/open/v1/orders", body, mchId));
     }
     if (url.pathname === "/flash-api/cancel" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      const mchId = body.mchId || "CBC9351";
+      const mchId = body.mchId || "CA5610";
       return json(await callFlash("/open/v1/orders/" + body.pno + "/cancel", { pno: body.pno }, mchId));
     }
     if (url.pathname === "/flash-api/tracking" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      const mchId = body.mchId || "CBC9351";
+      const mchId = body.mchId || "CA5610";
       const pnos = body.pnos || "";
       if (!pnos) return json({ code: -1, message: "pnos required" });
       return json(await callFlash("/open/v1/orders/routesBatch", { pnos }, mchId));
