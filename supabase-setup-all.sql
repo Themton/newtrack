@@ -205,6 +205,8 @@ ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS flash_updated_at TIMESTAMPTZ;
 ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS customer_fb_line TEXT DEFAULT '';
 ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS sale_person TEXT DEFAULT '';
 ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS sale_price NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual';
+ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS upsell_by TEXT DEFAULT '';
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- PART 7) ค่าตั้งต้น (Settings)
