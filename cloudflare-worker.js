@@ -48,6 +48,21 @@ async function callFlash(path, params, mchId) {
   } catch (e) { return { code: -1, message: e.message }; }
 }
 
+// ขอไฟล์ PDF ใบปะหน้าจาก Flash (คืน Response ตรง ๆ เพราะเป็น PDF stream)
+async function flashLabel(pno, mchId, size) {
+  const apiKey = FLASH_ACCOUNTS[mchId];
+  if (!apiKey) return { error: "Invalid mchId: " + mchId };
+  const params = { mchId, nonceStr: String(Date.now()) + Math.random().toString(36).slice(2, 8) };
+  params.sign = await flashSign(params, apiKey);
+  const body = new URLSearchParams(params).toString();
+  const seg = size === "small" ? "/small/pre_print" : "/pre_print";
+  return fetch(FLASH_API + "/open/v1/orders/" + pno + seg, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/pdf" },
+    body
+  });
+}
+
 async function sbQuery(path, opts = {}) {
   const headers = { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json" };
   if (opts.prefer) headers["Prefer"] = opts.prefer;
@@ -211,6 +226,24 @@ export default {
       const pnos = body.pnos || "";
       if (!pnos) return json({ code: -1, message: "pnos required" });
       return json(await callFlash("/open/v1/orders/routesBatch", { pnos }, mchId));
+    }
+    // เรียกพนักงานเข้ารับพัสดุ (notify courier)
+    if (url.pathname === "/flash-api/notify" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const mchId = body.mchId || DEFAULT_MCH; delete body.mchId;
+      return json(await callFlash("/open/v1/notify", body, mchId));
+    }
+    // ปริ้นใบปะหน้า (print label) — คืนไฟล์ PDF
+    if (url.pathname === "/flash-api/label" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const mchId = body.mchId || DEFAULT_MCH;
+      if (!body.pno) return json({ code: -1, message: "pno required" });
+      const r = await flashLabel(body.pno, mchId, body.size);
+      if (r.error) return json({ code: -1, message: r.error }, 400);
+      const ct = r.headers.get("Content-Type") || "";
+      if (ct.includes("application/json")) return json(await r.json(), r.status);
+      const buf = await r.arrayBuffer();
+      return new Response(buf, { status: r.status, headers: { ...cors, "Content-Type": "application/pdf" } });
     }
 
     // ═══ SUPABASE PROXY ═══

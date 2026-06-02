@@ -94,6 +94,34 @@ const flashApi = {
   async getTracking(pnos, account) {
     return this.callWorker("tracking", { pnos: pnos.join(","), mchId: account?.mchId || "CBC9351" });
   },
+  async notifyCourier(sender, account) {
+    const mapProv = (p) => p === "กรุงเทพมหานคร" ? "กรุงเทพ" : p;
+    return this.callWorker("notify", {
+      mchId: account?.mchId || FLASH_ACCOUNTS[0].mchId,
+      srcName: sender.name || "",
+      srcPhone: sender.phone || "",
+      srcProvinceName: mapProv(sender.province || ""),
+      srcCityName: sender.city || sender.district || "",
+      srcPostalCode: String(sender.postal || ""),
+      srcDetailAddress: sender.address || sender.name || "",
+    });
+  },
+  async openLabel(pno, account, size) {
+    const res = await fetch(`${WORKER_URL}/flash-api/label`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pno, size: size || "", mchId: account?.mchId || FLASH_ACCOUNTS[0].mchId }),
+    });
+    const ct = res.headers.get("Content-Type") || "";
+    if (ct.includes("application/pdf")) {
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), "_blank");
+      return { ok: true };
+    }
+    let msg = "ขอใบปะหน้าจาก Flash ไม่สำเร็จ";
+    try { const d = await res.json(); msg = d.message || msg; } catch {}
+    throw new Error(msg);
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -3395,7 +3423,27 @@ export default function FlashBackend() {
         <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, padding: 28, maxWidth: 600, width: "95%", maxHeight: "85vh", overflowY: "auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🖨️ ปริ้นใบปะหน้า — {printPreview.filter(p => p._print !== false).length} ใบ</h3>
-            <button onClick={() => setPrintPreview(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer" }}>✕</button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button onClick={async () => {
+                const list = printPreview.filter(p => p._print !== false && p.flash_pno);
+                if (!list.length) { alert("ไม่มีพัสดุที่มีเลข Flash ให้ปริ้น"); return; }
+                for (const p of list) {
+                  try { await flashApi.openLabel(p.flash_pno, getFlashAccount(p)); }
+                  catch (e) { alert("ใบ " + p.flash_pno + ": " + e.message); break; }
+                }
+              }} style={{ padding: "7px 12px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🏷️ ใบ Flash ทางการ</button>
+              <button onClick={async () => {
+                const p = printPreview.find(x => x._print !== false) || printPreview[0];
+                if (!p) return;
+                if (!confirm("เรียกพนักงาน Flash เข้ารับพัสดุที่ที่อยู่ผู้ส่ง?\n" + (p.sender_name || "") + " " + (p.sender_phone || ""))) return;
+                try {
+                  const r = await flashApi.notifyCourier({ name: p.sender_name, phone: p.sender_phone, province: p.sender_province, city: p.sender_district, postal: p.sender_postal, address: p.sender_address }, getFlashAccount(p));
+                  if (r.code === 1 && r.data) alert("✅ เรียกพนักงานสำเร็จ\nพนักงาน: " + (r.data.staffInfoName || "-") + "\nโทร: " + (r.data.staffInfoPhone || "-") + "\nเวลา: " + (r.data.timeoutAtText || "-") + (r.data.ticketMessage ? "\n\n" + r.data.ticketMessage : ""));
+                  else alert("❌ " + (r.message || "เรียกพนักงานไม่สำเร็จ"));
+                } catch (e) { alert("❌ " + e.message); }
+              }} style={{ padding: "7px 12px", background: "#ea580c", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🛵 เรียกพนักงานเข้ารับ</button>
+              <button onClick={() => setPrintPreview(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer" }}>✕</button>
+            </div>
           </div>
 
           {/* กรองตามยอด */}
