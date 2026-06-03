@@ -192,7 +192,8 @@ async function sha256(str) {
 function generateParcelNo() {
   const now = new Date();
   const d = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-  return `FX-${d}-${String(Math.floor(Math.random() * 9999) + 1).padStart(4, "0")}`;
+  const uniq = (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).toUpperCase();
+  return `FX-${d}-${uniq}`;
 }
 
 const ROLES = {
