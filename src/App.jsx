@@ -1124,6 +1124,63 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
 let _uiDialog = null;
 const uiConfirm = (message, opts = {}) => new Promise((resolve) => { if (_uiDialog) _uiDialog({ mode: "confirm", message, ...opts, resolve }); else resolve(window.confirm(message)); });
 const uiAlert = (message, opts = {}) => new Promise((resolve) => { if (_uiDialog) _uiDialog({ mode: "alert", message, ...opts, resolve }); else { window.alert(message); resolve(); } });
+function PublicTracking() {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const search = async () => {
+    const term = q.trim();
+    if (!term) return;
+    setLoading(true); setResults(null);
+    try {
+      const enc = encodeURIComponent(term);
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?or=(flash_pno.eq.${enc},receiver_phone.eq.${enc})&select=flash_pno,flash_sort_code,receiver_name,receiver_province,receiver_district,flash_status,flash_detail,flash_updated_at,created_at,status&order=created_at.desc&limit=20`;
+      const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } });
+      setResults(res.ok ? await res.json() : []);
+    } catch { setResults([]); }
+    setLoading(false);
+  };
+  const sColor = (fs, st) => {
+    if (st === "cancelled") return { bg: "#fee2e2", color: "#991b1b", txt: "ยกเลิก" };
+    if (!fs || fs === "สร้างรายการ") return { bg: "#fef3c7", color: "#92400e", txt: "กำลังเตรียมพัสดุ" };
+    if (fs.includes("เซ็นรับ") || fs.includes("สำเร็จ")) return { bg: "#d1fae5", color: "#065f46", txt: fs };
+    if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ตีกลับ") || fs.includes("ส่งกลับ")) return { bg: "#fee2e2", color: "#991b1b", txt: fs };
+    if (fs.includes("ขนส่ง")) return { bg: "#ede9fe", color: "#6d28d9", txt: fs };
+    return { bg: "#e0f2fe", color: "#0369a1", txt: fs };
+  };
+  const mask = (n) => { const s = (n || "").trim(); if (s.length <= 2) return s; return s.slice(0, 1) + "•".repeat(Math.max(1, s.length - 2)) + s.slice(-1); };
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#fff7ed,#f8fafc)", display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 20px", fontFamily: "'IBM Plex Sans Thai',sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: 640 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 42 }}>🚚</div>
+          <h1 style={{ fontSize: 26, fontWeight: 800, margin: "8px 0 2px", color: "#dc2626" }}>ติดตามพัสดุ</h1>
+          <p style={{ color: "#64748b", margin: 0, fontSize: 14 }}>บริษัทเดอะเอ็มที — กรอกเลขพัสดุ หรือ เบอร์โทรผู้รับ</p>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
+          <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="เลขพัสดุ TH... หรือ เบอร์โทร" style={{ flex: 1, padding: "14px 18px", border: "2px solid #e2e8f0", borderRadius: 14, fontSize: 16, outline: "none", fontFamily: "inherit" }} autoFocus />
+          <button onClick={search} disabled={loading} style={{ padding: "14px 26px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "inherit" }}>{loading ? "⏳" : "🔍 ค้นหา"}</button>
+        </div>
+        {results && results.map((p, i) => { const sc = sColor(p.flash_status, p.status); return (
+          <div key={i} style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "18px 20px", marginBottom: 12, boxShadow: "0 1px 3px rgba(0,0,0,.05)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+              <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 16, color: "#4f46e5" }}>📦 {p.flash_pno || "—"}</span>
+              <span style={{ padding: "5px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: sc.bg, color: sc.color }}>{sc.txt}</span>
+            </div>
+            <div style={{ fontSize: 14, color: "#334155" }}>ผู้รับ: {mask(p.receiver_name)}</div>
+            <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>ปลายทาง: {p.receiver_district || ""} {p.receiver_province || ""}</div>
+            {p.flash_detail && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 8, padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>💬 {p.flash_detail}</div>}
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>📅 เข้าระบบ {new Date(p.created_at).toLocaleDateString("th-TH")}{p.flash_updated_at ? ` • อัปเดต ${new Date(p.flash_updated_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+          </div>
+        ); })}
+        {results && results.length === 0 && !loading && (
+          <div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ marginTop: 8, fontWeight: 600 }}>ไม่พบพัสดุ</div><div style={{ fontSize: 13, marginTop: 4 }}>กรุณาตรวจสอบเลขพัสดุหรือเบอร์โทรอีกครั้ง</div></div>
+        )}
+        <div style={{ textAlign: "center", marginTop: 24, fontSize: 12, color: "#cbd5e1" }}>ระบบจัดการขนส่ง · บริษัทเดอะเอ็มที</div>
+      </div>
+    </div>
+  );
+}
 export default function FlashBackend() {
   const [user, setUser] = useState(() => {
     try { const s = sessionStorage.getItem("fx_user"); return s ? JSON.parse(s) : null; } catch { return null; }
@@ -1772,6 +1829,7 @@ export default function FlashBackend() {
   const [trkResults, setTrkResults] = useState([]);
   const [trkLoading, setTrkLoading] = useState(false);
 
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("track")) return <PublicTracking />;
   if (!user) return <LoginScreen onLogin={handleLogin} isDemo={isDemo} />;
 
   // ═══ TRACKING ROLE — หน้าค้นหาเลขพัสดุอย่างเดียว ═══
