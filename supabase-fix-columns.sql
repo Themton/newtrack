@@ -29,5 +29,17 @@ ALTER TABLE fx_users ADD CONSTRAINT fx_users_role_check CHECK (role IN ('admin',
 ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS cod_received    BOOLEAN DEFAULT false;
 ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS cod_received_at TIMESTAMPTZ;
 
+-- 7) ตารางบันทึกกิจกรรม (Activity Log)
+CREATE TABLE IF NOT EXISTS fx_activity_log (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  actor_id UUID, actor_name TEXT, action TEXT, detail TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE fx_activity_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "fx_activity_log_select" ON fx_activity_log;
+CREATE POLICY "fx_activity_log_select" ON fx_activity_log FOR SELECT USING (true);
+DROP POLICY IF EXISTS "fx_activity_log_insert" ON fx_activity_log;
+CREATE POLICY "fx_activity_log_insert" ON fx_activity_log FOR INSERT WITH CHECK (true);
+
 -- รีโหลด schema cache
 NOTIFY pgrst, 'reload schema';

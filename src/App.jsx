@@ -1442,7 +1442,7 @@ export default function FlashBackend() {
   // แจ้งเตือน: พัสดุที่มีเลข Tracking แต่ Flash ยังไม่รับเข้าระบบ
   const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && (!p.flash_status || p.flash_status === "สร้างรายการ")), [parcels]);
 
-  const handleDelete = async (p) => { if (!await uiConfirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); await sb.broadcastChange(); } catch (e) { uiAlert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
+  const handleDelete = async (p) => { if (!await uiConfirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); logActivity("ลบพัสดุ", `${p.parcel_no || ""} · ${p.receiver_name}`); await sb.broadcastChange(); } catch (e) { uiAlert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
   const markPrinted = async (p) => {
     mutating.current = true;
     try {
@@ -1472,6 +1472,7 @@ export default function FlashBackend() {
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
   const [uiDlg, setUiDlg] = useState(null);
   useEffect(() => { _uiDialog = setUiDlg; return () => { _uiDialog = null; }; }, []);
+  const logActivity = async (action, detail) => { try { if (!isDemo) await sb.insert("fx_activity_log", { actor_id: user?.id || null, actor_name: user?.display_name || "", action, detail }); } catch {} };
   // Get Flash account for a parcel (from its shop)
   const getFlashAccount = (p) => {
     const shop = shops?.find(s => s.id === p.shop_id);
@@ -1523,6 +1524,7 @@ export default function FlashBackend() {
         if (!isDemo) await sb.update("fx_parcels", p.id, updates);
         setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
         showToast(`ยกเลิกเลขพัสดุ ${p.flash_pno} สำเร็จ`);
+        logActivity("ยกเลิกพัสดุ", `${p.flash_pno} · ${p.receiver_name}`);
         sb.broadcastChange();
       } else {
         uiAlert(`❌ ยกเลิกไม่สำเร็จ\n\nCode: ${result.code}\nMessage: ${result.message || "ไม่มีข้อความ"}\n\nรายละเอียด: ${JSON.stringify(result.data || result, null, 2)}\n\n⚠️ พัสดุอาจถูกรับแล้ว หรือยกเลิกไม่ได้`);
@@ -1572,6 +1574,7 @@ export default function FlashBackend() {
     }
     if (success > 0) {
       showToast(`สร้างเลข Tracking สำเร็จ ${success} รายการ`);
+      logActivity("สร้างเลขหลายใบ", `${success} ใบ`);
       const createdIds = new Set(targets.map(t => t.id));
       setTimeout(() => {
         setParcels(prev => {
@@ -1801,6 +1804,7 @@ export default function FlashBackend() {
       showToast(`ยกเลิกในระบบแล้ว ${fails.length} ใบ`);
     } else {
       showToast(`ยกเลิกสำเร็จ ${ok} ใบ` + (failList.length ? ` (พลาด ${failList.length})` : ""));
+      logActivity("ยกเลิกหลายใบ", `${ok} ใบ`);
     }
   };
 
@@ -1817,6 +1821,7 @@ export default function FlashBackend() {
     setParcels(prev => prev.filter(x => !selectedIds.has(x.id)));
     setGlobalLoading(null);
     showToast(`ลบสำเร็จ ${success}/${targets.length} รายการ`);
+    logActivity("ลบหลายใบ", `${success} ใบ`);
     sb.broadcastChange();
     setSelectedIds(new Set());
   };
@@ -1915,6 +1920,7 @@ export default function FlashBackend() {
     ...(perm.dashboard ? [{ key: "dashboard", label: "Dashboard", icon: "📊" }] : []),
     { key: "parcels", label: "การจัดส่ง", icon: "📦" },
     { key: "report", label: "รายงานสถานะ", icon: "🚚" },
+    ...(perm.status ? [{ key: "problems", label: "พัสดุมีปัญหา", icon: "⚠️" }] : []),
     ...(perm.dashboard ? [{ key: "summary", label: "สรุปรายงาน", icon: "📋" }] : []),
     ...(perm.evaluate ? [{ key: "evaluate", label: "ประเมินผล", icon: "📈" }] : []),
     ...(perm.viewCOD ? [{ key: "cod", label: "กระทบยอด COD", icon: "💵" }] : []),
@@ -1923,6 +1929,7 @@ export default function FlashBackend() {
     ...(perm.exportData ? [{ key: "export", label: "Export ข้อมูล", icon: "📤" }] : []),
     { key: "shops", label: "ร้านค้า", icon: "🏪" },
     ...(perm.users ? [{ key: "users", label: "จัดการผู้ใช้", icon: "👥" }] : []),
+    ...(perm.users ? [{ key: "activity", label: "บันทึกกิจกรรม", icon: "📜" }] : []),
   ];
 
   // ═══ COD RECONCILE PAGE — กระทบยอด COD ═══
@@ -2011,6 +2018,95 @@ export default function FlashBackend() {
           </div>
           {rows.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 36 }}>💸</div><div style={{ marginTop: 8 }}>{filt === "outstanding" ? "ไม่มียอดค้างรับ — เก็บครบแล้ว 🎉" : filt === "received" ? "ยังไม่มีรายการที่ยืนยันรับเงิน" : "ยังไม่มีพัสดุ COD ที่ส่งสำเร็จ"}</div></div>}
         </div>
+      </div>
+    );
+  };
+
+  // ═══ PROBLEM PARCELS PAGE — พัสดุตีกลับ/ส่งไม่สำเร็จ ═══
+  const ProblemPage = () => {
+    const isProblem = (fs) => !!fs && (fs.includes("ไม่สำเร็จ") || fs.includes("ตีกลับ") || fs.includes("คืน") || fs.includes("ส่งกลับ"));
+    const probs = useMemo(() => parcels.filter(p => isProblem(p.flash_status) && p.status !== "cancelled").sort((a, b) => new Date(b.flash_updated_at || b.created_at) - new Date(a.flash_updated_at || a.created_at)), [parcels]);
+    const [notes, setNotes] = useState({});
+    const [saving, setSaving] = useState(null);
+    const saveNote = async (p) => {
+      const txt = notes[p.id] ?? p.remark ?? "";
+      setSaving(p.id);
+      setParcels(prev => prev.map(x => x.id === p.id ? { ...x, remark: txt } : x));
+      try { if (!isDemo) await sb.update("fx_parcels", p.id, { remark: txt }); showToast("บันทึกหมายเหตุแล้ว"); } catch (e) { uiAlert("บันทึกไม่สำเร็จ: " + e.message); }
+      setSaving(null);
+    };
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>⚠️ พัสดุมีปัญหา (ตีกลับ / ส่งไม่สำเร็จ)</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>รวมใบที่ส่งไม่สำเร็จ/ตีกลับ — โทรหาลูกค้า · จดหมายเหตุนัดส่งใหม่ · ตัดสินใจยกเลิก ในที่เดียว</p>
+        </div>
+        {probs.length === 0 && <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: 50, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 40 }}>🎉</div><div style={{ marginTop: 10, fontWeight: 600 }}>ไม่มีพัสดุที่มีปัญหา</div></div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {probs.map(p => (
+            <div key={p.id} style={{ background: "#fff", borderRadius: 14, border: "1px solid #fecaca", borderLeft: "4px solid #ef4444", padding: "16px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 16 }}>{p.receiver_name} <span style={{ fontFamily: "monospace", fontSize: 12, color: "#4f46e5", fontWeight: 600, marginLeft: 6 }}>{p.flash_pno || ""}</span></div>
+                  <div style={{ fontSize: 13, color: "#64748b", marginTop: 3 }}>📍 {[p.receiver_district, p.receiver_province].filter(Boolean).join(" ")} {p.cod_enabled && Number(p.cod_amount) > 0 ? <span style={{ color: "#dc2626", fontWeight: 700 }}>· COD ฿{Number(p.cod_amount).toLocaleString()}</span> : null}</div>
+                </div>
+                <span style={{ padding: "5px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: "#fee2e2", color: "#991b1b", whiteSpace: "nowrap" }}>{p.flash_status}</span>
+              </div>
+              {p.flash_detail && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 10, padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>💬 {p.flash_detail}</div>}
+              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+                <a href={`tel:${p.receiver_phone}`} style={{ padding: "8px 16px", borderRadius: 8, background: "#10b981", color: "#fff", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📞 โทรหาลูกค้า ({p.receiver_phone})</a>
+                {perm.cancelFlash && <button onClick={() => cancelFlashOrder(p)} style={{ padding: "8px 16px", borderRadius: 8, background: "#fff", border: "1px solid #fca5a5", color: "#dc2626", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>❌ ตัดสินใจยกเลิก/ตีกลับ</button>}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "flex-end" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8" }}>📝 หมายเหตุ / นัดส่งใหม่</label>
+                  <textarea value={notes[p.id] ?? p.remark ?? ""} onChange={e => setNotes(n => ({ ...n, [p.id]: e.target.value }))} placeholder="เช่น โทรแล้วลูกค้านัดส่งใหม่ 5 มิ.ย. / ที่อยู่ผิดให้ตีกลับ" rows={2} style={{ width: "100%", padding: "8px 10px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", resize: "vertical", marginTop: 3, boxSizing: "border-box" }} />
+                </div>
+                <button onClick={() => saveNote(p)} disabled={saving === p.id} style={{ padding: "8px 16px", borderRadius: 8, background: "#4f46e5", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>{saving === p.id ? "..." : "💾 บันทึก"}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ═══ ACTIVITY LOG PAGE — บันทึกกิจกรรม ═══
+  const ActivityLogPage = () => {
+    const [logs, setLogs] = useState(null);
+    const [q, setQ] = useState("");
+    useEffect(() => { (async () => { try { const d = await sb.select("fx_activity_log", { order: "created_at.desc", limit: 300 }); setLogs(d || []); } catch { setLogs([]); } })(); }, []);
+    const icon = (a) => (a || "").includes("ลบ") ? "🗑️" : (a || "").includes("ยกเลิก") ? "❌" : (a || "").includes("สร้าง") ? "📦" : "•";
+    const color = (a) => (a || "").includes("ลบ") ? "#dc2626" : (a || "").includes("ยกเลิก") ? "#f97316" : (a || "").includes("สร้าง") ? "#059669" : "#64748b";
+    const filtered = (logs || []).filter(l => !q || [l.actor_name, l.detail, l.action].some(v => (v || "").toLowerCase().includes(q.toLowerCase())));
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📜 บันทึกกิจกรรม</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ใครสร้าง / ยกเลิก / ลบ พัสดุใบไหน เมื่อไหร่ — ย้อนหลัง 300 รายการล่าสุด</p>
+        </div>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหาชื่อผู้ใช้ / รายละเอียด / การกระทำ" style={{ width: "100%", maxWidth: 420, padding: "10px 14px", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 14, marginBottom: 16, boxSizing: "border-box" }} />
+        {logs === null && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>⏳ กำลังโหลด...</div>}
+        {logs !== null && (
+          <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead><tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                  {["เวลา", "ผู้ใช้", "การกระทำ", "รายละเอียด"].map((h, i) => <th key={i} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{filtered.map(l => (
+                  <tr key={l.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "10px 14px", color: "#64748b", whiteSpace: "nowrap" }}>{new Date(l.created_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+                    <td style={{ padding: "10px 14px", fontWeight: 600 }}>{l.actor_name || "—"}</td>
+                    <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}><span style={{ color: color(l.action), fontWeight: 700 }}>{icon(l.action)} {l.action}</span></td>
+                    <td style={{ padding: "10px 14px", color: "#475569" }}>{l.detail}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            {filtered.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 36 }}>📭</div><div style={{ marginTop: 8 }}>{(logs.length === 0) ? "ยังไม่มีบันทึกกิจกรรม" : "ไม่พบรายการที่ค้นหา"}</div></div>}
+          </div>
+        )}
       </div>
     );
   };
@@ -2817,6 +2913,73 @@ export default function FlashBackend() {
             <button onClick={() => setActivePage("parcels")} style={{ padding: "12px 24px", background: "#fff", color: "#374151", border: "1.5px solid #d1d5db", borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📦 ดูรายการทั้งหมด</button>
           </div>
         </div>
+
+        {/* ── กราฟ ── */}
+        {(() => {
+          const CARD = { background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: "16px 18px" };
+          const CHTITLE = { fontSize: 13, fontWeight: 800, color: "#334155", marginBottom: 8 };
+          const days = [...Array(14)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (13 - i)); return d.toISOString().slice(0, 10); });
+          const dl = (iso) => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth() + 1}`; };
+          const volByDay = days.map(d => parcels.filter(p => p.created_at?.slice(0, 10) === d).length);
+          const codByDay = days.map(d => parcels.filter(p => p.created_at?.slice(0, 10) === d && p.cod_enabled).reduce((s, p) => s + Number(p.cod_amount || 0), 0));
+          const isDeliv = (fs) => !!fs && (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ"));
+          const isFail = (fs) => !!fs && (fs.includes("ไม่สำเร็จ") || fs.includes("ตีกลับ") || fs.includes("คืน") || fs.includes("ส่งกลับ"));
+          const tracked = parcels.filter(p => p.flash_pno && p.status !== "cancelled");
+          const delivered = tracked.filter(p => isDeliv(p.flash_status)).length;
+          const failed = tracked.filter(p => isFail(p.flash_status)).length;
+          const finished = delivered + failed;
+          const successRate = finished > 0 ? Math.round((delivered / finished) * 100) : 0;
+          const provCount = {};
+          parcels.forEach(p => { if (p.receiver_province) provCount[p.receiver_province] = (provCount[p.receiver_province] || 0) + 1; });
+          const topProv = Object.entries(provCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
+          const maxVol = Math.max(1, ...volByDay), maxCod = Math.max(1, ...codByDay), maxProv = Math.max(1, ...topProv.map(p => p[1]));
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16, marginTop: 20 }}>
+              <div style={CARD}>
+                <div style={CHTITLE}>📦 ยอดส่งรายวัน (14 วัน)</div>
+                <svg viewBox="0 0 340 140" style={{ width: "100%" }}>
+                  {volByDay.map((v, i) => { const bh = (v / maxVol) * 95; return <g key={i}><rect x={6 + i * 24} y={120 - bh} width={16} height={bh} rx={3} fill="#6366f1" /><text x={14 + i * 24} y={134} fontSize="7" fill="#94a3b8" textAnchor="middle">{dl(days[i])}</text>{v > 0 && <text x={14 + i * 24} y={115 - bh} fontSize="7.5" fill="#6366f1" textAnchor="middle" fontWeight="700">{v}</text>}</g>; })}
+                </svg>
+              </div>
+              <div style={CARD}>
+                <div style={CHTITLE}>✅ อัตราส่งสำเร็จ</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, padding: "8px 0" }}>
+                  <svg viewBox="0 0 100 100" style={{ width: 110, height: 110 }}>
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#fee2e2" strokeWidth="13" />
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#10b981" strokeWidth="13" strokeDasharray={`${successRate * 2.513} 999`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+                    <text x="50" y="52" fontSize="20" fontWeight="800" fill="#10b981" textAnchor="middle">{successRate}%</text>
+                    <text x="50" y="65" fontSize="7" fill="#94a3b8" textAnchor="middle">สำเร็จ</text>
+                  </svg>
+                  <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.9 }}>
+                    <div>✅ สำเร็จ: <b style={{ color: "#10b981" }}>{delivered}</b></div>
+                    <div>❌ มีปัญหา: <b style={{ color: "#dc2626" }}>{failed}</b></div>
+                    <div>🚚 กำลังส่ง: <b style={{ color: "#f59e0b" }}>{Math.max(0, tracked.length - finished)}</b></div>
+                  </div>
+                </div>
+              </div>
+              <div style={CARD}>
+                <div style={CHTITLE}>💰 แนวโน้ม COD (14 วัน)</div>
+                <svg viewBox="0 0 340 140" style={{ width: "100%" }}>
+                  {codByDay.map((v, i) => { const bh = (v / maxCod) * 100; return <g key={i}><rect x={6 + i * 24} y={120 - bh} width={16} height={bh} rx={3} fill="#10b981" /><text x={14 + i * 24} y={134} fontSize="7" fill="#94a3b8" textAnchor="middle">{dl(days[i])}</text></g>; })}
+                </svg>
+                <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "right" }}>รวม ฿{codByDay.reduce((a, b) => a + b, 0).toLocaleString()}</div>
+              </div>
+              <div style={CARD}>
+                <div style={CHTITLE}>📍 จังหวัดปลายทางยอดนิยม</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
+                  {topProv.length === 0 && <div style={{ fontSize: 12, color: "#cbd5e1", textAlign: "center", padding: 20 }}>ยังไม่มีข้อมูล</div>}
+                  {topProv.map(([prov, cnt], i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 92, fontSize: 12, color: "#475569", textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prov}</div>
+                      <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 18, overflow: "hidden" }}><div style={{ width: `${(cnt / maxProv) * 100}%`, height: "100%", background: "#8b5cf6", borderRadius: 6 }} /></div>
+                      <div style={{ width: 34, fontSize: 12, fontWeight: 700, color: "#8b5cf6" }}>{cnt}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Realtime Indicator */}
         <div style={{ marginTop: 20, textAlign: "center", fontSize: 12, color: "#9ca3af" }}>
@@ -3655,6 +3818,8 @@ export default function FlashBackend() {
 
           {activePage === "dashboard" && <DashboardPage />}
           {activePage === "report" && <ReportPage />}
+          {activePage === "problems" && <ProblemPage />}
+          {activePage === "activity" && <ActivityLogPage />}
           {activePage === "summary" && <SummaryReportPage />}
           {activePage === "evaluate" && <EvaluatePage />}
           {activePage === "cod" && <CODReconcilePage />}

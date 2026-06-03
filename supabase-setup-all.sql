@@ -341,3 +341,17 @@ END $$;
 -- ═══════════════════════════════════════════════════════════════════════
 -- เสร็จสิ้น ✅  ล็อกอินด้วย  admin / admin1234  (เปลี่ยนรหัสทันทีหลังใช้งานจริง)
 -- ═══════════════════════════════════════════════════════════════════════
+
+-- ===== fx_activity_log : บันทึกกิจกรรม =====
+CREATE TABLE IF NOT EXISTS fx_activity_log (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  actor_id UUID,
+  actor_name TEXT,
+  action TEXT,
+  detail TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE fx_activity_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "fx_activity_log_select" ON fx_activity_log FOR SELECT USING (true);
+CREATE POLICY "fx_activity_log_insert" ON fx_activity_log FOR INSERT WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_activity_created ON fx_activity_log(created_at DESC);
