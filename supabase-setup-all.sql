@@ -40,10 +40,7 @@ CREATE TABLE IF NOT EXISTS fx_parcels (
   flash_sort_code TEXT,
   flash_dst_code TEXT,
   flash_api_response JSONB,
-  status TEXT DEFAULT 'draft' CHECK (status IN (
-    'draft','created','waiting_pickup','picked_up','in_transit',
-    'out_for_delivery','delivered','returned','cancelled','failed'
-  )),
+  status TEXT DEFAULT 'draft',
   label_printed BOOLEAN DEFAULT false,
   label_printed_at TIMESTAMPTZ,
   remark TEXT,
