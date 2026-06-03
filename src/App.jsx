@@ -1534,7 +1534,8 @@ export default function FlashBackend() {
     const now = new Date().toLocaleString("en-GB", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const total = targets.length;
     const lblData = targets.map((p, i) => {
-      const fr = p.flash_api_response || {};
+      let fr = p.flash_api_response || {};
+      if (typeof fr === "string") { try { fr = JSON.parse(fr); } catch { fr = {}; } }
       return {
         i,
         sc: p.flash_sort_code || fr.sortCode || "",
