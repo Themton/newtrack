@@ -1533,20 +1533,27 @@ export default function FlashBackend() {
     const maskPhone = (ph) => (ph || "").replace(/^(\d{3})\d{4}(\d{3})$/, "$1****$2");
     const now = new Date().toLocaleString("en-GB", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const total = targets.length;
-    const lblData = targets.map((p, i) => ({
-      i,
-      sc: p.flash_sort_code || "",
-      pno: p.flash_pno || "",
-      dist: p.receiver_district || "",
-      prov: p.receiver_province || "",
-      src: `ผู้ส่ง ${p.sender_name || ""} ${p.sender_phone || ""} ${p.sender_address || ""}`.trim(),
-      rname: p.receiver_name || "",
-      rphone: maskPhone(p.receiver_phone),
-      raddr1: p.receiver_address || "",
-      raddr2: `${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}`,
-      raddr3: `${p.receiver_province || ""} ${p.receiver_postal || ""}`.trim(),
-      cod: (p.cod_enabled && Number(p.cod_amount) > 0) ? Number(p.cod_amount) : 0,
-    }));
+    const lblData = targets.map((p, i) => {
+      const fr = p.flash_api_response || {};
+      return {
+        i,
+        sc: p.flash_sort_code || fr.sortCode || "",
+        zone: fr.sortingLineCode || fr.lineCode || "",
+        dst2: fr.dstStoreName || "",
+        pno: p.flash_pno || "",
+        dist: p.receiver_district || "",
+        prov: p.receiver_province || "",
+        sname: p.sender_name || "",
+        sphone: p.sender_phone || "",
+        saddr: `${p.sender_address || ""} ${p.sender_subdistrict || ""} ${p.sender_district || ""} ${p.sender_province || ""} ${p.sender_postal || ""}`.replace(/\s+/g, " ").trim(),
+        rname: p.receiver_name || "",
+        rphone: maskPhone(p.receiver_phone),
+        raddr1: p.receiver_address || "",
+        raddr2: `${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}`,
+        raddr3: `${p.receiver_province || ""} ${p.receiver_postal || ""}`.trim(),
+        cod: (p.cod_enabled && Number(p.cod_amount) > 0) ? Number(p.cod_amount) : 0,
+      };
+    });
 
     let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ใบปะหน้า Flash Express (${total} ใบ)</title>`;
     html += `<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800;900&family=Noto+Sans+Thai:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>`;
@@ -1645,16 +1652,19 @@ export default function FlashBackend() {
     html += `function toggleAll(val){document.querySelectorAll("#pageSelect input").forEach(function(cb){cb.checked=val;updateLabel(parseInt(cb.dataset.idx),val);})}`;
     html += `function printSelected(){window.print();}`;
     html += `function cut(ctx,t,max){t=t||"";if(ctx.measureText(t).width<=max)return t;while(t.length&&ctx.measureText(t+"…").width>max)t=t.slice(0,-1);return t+"…";}`;
-    html += `function drawLbl(ctx,d,idx,total,W,H,now){ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.strokeStyle="#000";ctx.lineWidth=4;ctx.strokeRect(2,2,W-4,H-4);ctx.lineWidth=2;`;
-    html += `ctx.fillStyle="#000";ctx.textAlign="center";ctx.font="900 52px 'Sarabun','Noto Sans Thai',Tahoma,sans-serif";ctx.fillText(d.sc||"FLASH EXPRESS",W/2,60);ctx.beginPath();ctx.moveTo(0,80);ctx.lineTo(W,80);ctx.stroke();`;
-    html += `try{var bcv=document.createElement("canvas");JsBarcode(bcv,d.pno||" ",{format:"CODE128",width:2,height:80,displayValue:false,margin:0});ctx.drawImage(bcv,60,90,W-120,105);}catch(e){}ctx.beginPath();ctx.moveTo(0,205);ctx.lineTo(W,205);ctx.stroke();`;
-    html += `ctx.fillStyle="#f6f6f6";ctx.fillRect(2,205,W-4,46);ctx.fillStyle="#000";ctx.font="900 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.pno||"",W/2,238);ctx.beginPath();ctx.moveTo(0,251);ctx.lineTo(W,251);ctx.stroke();`;
-    html += `ctx.fillStyle="#222";ctx.fillRect(2,251,W-4,44);ctx.fillStyle="#fff";ctx.textAlign="left";ctx.font="700 24px 'Sarabun',Tahoma,sans-serif";ctx.fillText("DST  "+(d.dist||"")+" — "+(d.prov||""),20,282);`;
-    html += `ctx.fillStyle="#555";ctx.font="16px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.src,W-40),20,322);ctx.fillStyle="#000";ctx.font="800 26px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"ผู้รับ "+(d.rname||""),700),20,358);ctx.font="900 34px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.rphone||"",20,398);`;
-    html += `ctx.font="700 23px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.raddr1,700),20,432);ctx.fillText(cut(ctx,d.raddr2,700),20,462);ctx.fillText(cut(ctx,d.raddr3,700),20,492);`;
-    html += `try{var q=qrcode(0,"M");q.addData(d.pno||" ");q.make();var n=q.getModuleCount();var qs=190,qx=W-220,qy=300,cell=qs/n;ctx.fillStyle="#000";for(var r=0;r<n;r++)for(var c=0;c<n;c++)if(q.isDark(r,c))ctx.fillRect(qx+c*cell,qy+r*cell,Math.ceil(cell),Math.ceil(cell));}catch(e){}`;
-    html += `ctx.beginPath();ctx.moveTo(0,650);ctx.lineTo(W,650);ctx.stroke();if(d.cod>0){ctx.fillStyle="#000";ctx.fillRect(2,650,120,48);ctx.fillStyle="#fff";ctx.textAlign="left";ctx.font="900 24px 'Sarabun',Tahoma,sans-serif";ctx.fillText("COD",24,684);ctx.fillStyle="#000";ctx.font="900 28px 'Sarabun',Tahoma,sans-serif";ctx.fillText("เก็บเงินค่าสินค้า COD "+Number(d.cod).toLocaleString(),140,684);}else{ctx.fillStyle="#888";ctx.font="22px 'Sarabun',Tahoma,sans-serif";ctx.fillText("—",20,684);}ctx.beginPath();ctx.moveTo(0,700);ctx.lineTo(W,700);ctx.stroke();`;
-    html += `ctx.fillStyle="#999";ctx.font="14px 'Sarabun',Tahoma,sans-serif";ctx.textAlign="left";ctx.fillText("Print-: "+now,16,724);ctx.textAlign="center";ctx.fillText((idx+1)+"/"+total,W/2,724);ctx.textAlign="right";ctx.fillText("THE MT",W-16,724);ctx.textAlign="left";}`;
+    html += `function drawLbl(ctx,d,idx,total,W,H,now){ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.strokeStyle="#000";ctx.lineWidth=4;ctx.strokeRect(2,2,W-4,H-4);ctx.lineWidth=2;ctx.fillStyle="#000";ctx.textBaseline="alphabetic";`;
+    html += `ctx.textAlign="left";ctx.font="italic 900 40px Arial";ctx.fillText("FLASH",18,56);ctx.font="900 14px Arial";ctx.fillText("EXPRESS",150,56);`;
+    html += `var sc=String(d.sc||"").split("-");var pre=sc[0]||"",mid=sc[1]||"",suf=sc.slice(2).join("-");var sx=320,sy=66;ctx.textAlign="left";ctx.fillStyle="#000";ctx.font="900 40px Arial";ctx.fillText(pre,sx,sy);sx+=ctx.measureText(pre).width+10;ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+12;ctx.font="900 70px Arial";ctx.fillText(mid,sx,sy+4);sx+=ctx.measureText(mid).width+12;ctx.font="900 40px Arial";ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+10;ctx.fillText(suf,sx,sy);`;
+    html += `ctx.beginPath();ctx.moveTo(0,88);ctx.lineTo(W,88);ctx.stroke();`;
+    html += `try{var bcv=document.createElement("canvas");JsBarcode(bcv,d.pno||" ",{format:"CODE128",width:2,height:80,displayValue:false,margin:0});ctx.drawImage(bcv,60,96,W-120,98);}catch(e){}ctx.beginPath();ctx.moveTo(0,200);ctx.lineTo(W,200);ctx.stroke();`;
+    html += `ctx.fillStyle="#f6f6f6";ctx.fillRect(2,200,W-4,46);ctx.fillStyle="#000";ctx.textAlign="center";ctx.font="900 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.pno||"",W/2,234);ctx.beginPath();ctx.moveTo(0,246);ctx.lineTo(W,246);ctx.stroke();`;
+    html += `ctx.fillStyle="#222";ctx.fillRect(2,246,W-4,44);ctx.fillStyle="#fff";ctx.textAlign="left";ctx.font="700 24px 'Sarabun',Tahoma,sans-serif";ctx.fillText("DST   "+(d.dst2||((d.dist||"")+" — "+(d.prov||""))),20,277);`;
+    html += `if(d.zone){ctx.fillStyle="#000";ctx.fillRect(712,300,272,200);var zl=String(d.zone).length;ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font="900 "+(zl<=3?96:zl<=5?64:44)+"px Arial";ctx.fillText(String(d.zone),848,432);}`;
+    html += `ctx.fillStyle="#333";ctx.textAlign="left";ctx.font="16px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"ผู้ส่ง "+(d.sname||"")+" ("+(d.sphone||"")+")",660),20,322);ctx.fillStyle="#666";ctx.font="15px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.saddr,660),20,346);`;
+    html += `ctx.fillStyle="#000";ctx.font="800 25px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"ผู้รับ "+(d.rname||""),660),20,392);ctx.font="900 32px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.rphone||"",20,430);ctx.font="700 22px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.raddr1,660),20,464);ctx.fillText(cut(ctx,d.raddr2,660),20,492);ctx.fillText(cut(ctx,d.raddr3,660),20,520);`;
+    html += `if(d.cod>0){ctx.fillStyle="#000";ctx.fillRect(20,585,108,46);ctx.fillStyle="#fff";ctx.textAlign="left";ctx.font="900 24px 'Sarabun',Tahoma,sans-serif";ctx.fillText("COD",36,617);ctx.fillStyle="#000";ctx.font="900 26px 'Sarabun',Tahoma,sans-serif";ctx.fillText("เก็บเงิน COD "+Number(d.cod).toLocaleString(),142,617);}`;
+    html += `try{var q=qrcode(0,"M");q.addData(d.pno||" ");q.make();var n=q.getModuleCount();var qs=180,qx=W-205,qy=540,cell=qs/n;ctx.fillStyle="#000";for(var r=0;r<n;r++)for(var c=0;c<n;c++)if(q.isDark(r,c))ctx.fillRect(qx+c*cell,qy+r*cell,Math.ceil(cell),Math.ceil(cell));}catch(e){}`;
+    html += `ctx.beginPath();ctx.moveTo(0,705);ctx.lineTo(W,705);ctx.stroke();ctx.fillStyle="#777";ctx.font="14px 'Sarabun',Tahoma,sans-serif";ctx.textAlign="left";ctx.fillText(now+"  พิมพ์ครั้งที่: 1",16,730);ctx.textAlign="center";ctx.fillText((idx+1)+"/"+total,W/2,730);ctx.textAlign="right";ctx.fillText("THE MT",W-16,730);ctx.textAlign="left";}`;
     html += `async function downloadOurLabels(){var btn=document.querySelector(".btn-dl");var sel=LBLS.filter(function(x){var el=document.getElementById("lbl"+x.i);return el&&!el.classList.contains("hide-print");});if(!sel.length){alert("ไม่มีใบที่เลือก");return;}if(typeof jspdf==="undefined"||typeof JsBarcode==="undefined"||typeof qrcode==="undefined"){alert("กำลังโหลดไลบรารี ลองใหม่อีกครั้ง");return;}btn.disabled=true;var origin=btn.innerHTML;try{if(document.fonts&&document.fonts.ready){await document.fonts.ready;}}catch(e){}try{var W=1000,H=750;var pdf=new jspdf.jsPDF({orientation:"landscape",unit:"mm",format:[100,75]});var cv=document.createElement("canvas");cv.width=W;cv.height=H;var ctx=cv.getContext("2d");for(var idx=0;idx<sel.length;idx++){if(idx>0)pdf.addPage([100,75],"landscape");drawLbl(ctx,sel[idx],idx,sel.length,W,H,PNOW);var img=cv.toDataURL("image/jpeg",0.9);pdf.addImage(img,"JPEG",0,0,100,75);btn.innerHTML="⏳ "+(idx+1)+"/"+sel.length;if(idx%10===9)await new Promise(function(r){setTimeout(r,0);});}pdf.save("flash-labels-"+sel.length+".pdf");btn.innerHTML="✅ ดาวน์โหลดแล้ว "+sel.length+" ใบ";setTimeout(function(){btn.innerHTML=origin;btn.disabled=false;},3000);}catch(e){alert("ผิดพลาด: "+e.message);btn.disabled=false;btn.innerHTML=origin;}}`;
     html += `renderAll();`;
     html += `<\/script></body></html>`;
