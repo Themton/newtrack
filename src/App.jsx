@@ -2273,6 +2273,7 @@ export default function FlashBackend() {
         if (rptFilter === "สร้างรายการ") list = list.filter(p => !p.flash_status || p.flash_status === "" || p.flash_status === "สร้างรายการ");
         else if (rptFilter === "RETURN_ALL") list = list.filter(p => RETURN_STATUSES.some(s => (p.flash_status || "").includes(s)));
         else if (rptFilter === "OTHER") list = list.filter(p => p.flash_status && p.flash_status !== "สร้างรายการ" && !KNOWN_KEYS.some(k => matchStatus(p.flash_status, k)));
+        else if (rptFilter.startsWith("EXACT::")) list = list.filter(p => (p.flash_status || "") === rptFilter.slice(7));
         else list = list.filter(p => matchStatus(p.flash_status, rptFilter));
       }
       if (rptSearch) {
@@ -2302,6 +2303,18 @@ export default function FlashBackend() {
         else { counts.OTHER++; }
       }
       return counts;
+    }, [tracked, rptShop]);
+
+    // แตกสถานะ Flash จริงทุกตัวที่ไม่เข้ากลุ่มหลัก → แสดงเป็นการ์ดของตัวเอง (ให้ตรงกับ Flash ครบทุกสถานะ)
+    const otherStatusList = useMemo(() => {
+      const list = rptShop ? tracked.filter(p => p.shop_id === rptShop) : tracked;
+      const m = {};
+      for (const p of list) {
+        const fs = p.flash_status;
+        if (!fs || fs === "สร้างรายการ") continue;
+        if (!KNOWN_KEYS.some(k => matchStatus(fs, k))) m[fs] = (m[fs] || 0) + 1;
+      }
+      return Object.entries(m).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
     }, [tracked, rptShop]);
 
     const getStatusStyle = (fs) => {
@@ -2342,6 +2355,20 @@ export default function FlashBackend() {
               }}>
                 <div style={{ fontSize: 11, opacity: active ? .85 : .6, marginBottom: 4 }}>{t.icon} {t.label}</div>
                 <div style={{ fontSize: 24, fontWeight: 800 }}>{cnt}</div>
+              </div>
+            );
+          })}
+          {otherStatusList.map(o => {
+            const key = "EXACT::" + o.label;
+            const active = rptFilter === key;
+            return (
+              <div key={key} title="สถานะจริงจาก Flash" onClick={() => { setRptFilter(key); setRptPage(0); }} style={{
+                background: active ? "#0d9488" : "#fff", color: active ? "#fff" : "#111",
+                borderRadius: 12, padding: "14px 16px", border: active ? "none" : "1px dashed #5eead4",
+                cursor: "pointer", transition: "all .15s",
+              }}>
+                <div style={{ fontSize: 11, opacity: active ? .85 : .6, marginBottom: 4 }}>🏷️ {o.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 800 }}>{o.count}</div>
               </div>
             );
           })}
