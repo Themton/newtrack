@@ -255,7 +255,7 @@ function LoginScreen({ onLogin, isDemo }) {
       <div style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 36 }}>
           <div style={{ width: 72, height: 72, background: "linear-gradient(135deg,#dc2626,#f97316)", borderRadius: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 36, marginBottom: 16, boxShadow: "0 8px 30px rgba(220,38,38,.3)" }}>🚚</div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#f8fafc", margin: 0 }}>ระบบจัดการขนส่ง</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#f8fafc", margin: 0 }}>MT Track</h1>
           <p style={{ fontSize: 14, color: "#64748b", marginTop: 6 }}>บริษัทเดอะเอ็มที</p>
         </div>
         <div style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 20, padding: 32, backdropFilter: "blur(10px)" }}>
@@ -3300,8 +3300,13 @@ export default function FlashBackend() {
       <div style={{ width: 200, background: "#1a1a2e", color: "#fff", display: "flex", flexDirection: "column", position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 100, flexShrink: 0 }}>
         {/* Logo */}
         <div style={{ padding: "20px 16px 16px", borderBottom: "1px solid rgba(255,255,255,.08)" }}>
-          <div style={{ fontSize: 18, fontWeight: 800, color: "#f87171", display: "flex", alignItems: "center", gap: 8 }}>🚚 ระบบจัดการขนส่ง</div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,.4)", marginTop: 2 }}>บริษัทเดอะเอ็มที <span style={{ color: "#10b981" }}>● Live</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: "linear-gradient(135deg,#dc2626,#f97316)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 15, color: "#fff", letterSpacing: -0.5, boxShadow: "0 3px 12px rgba(220,38,38,.45)", flexShrink: 0 }}>MT</div>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", lineHeight: 1, letterSpacing: -0.3 }}>MT <span style={{ color: "#f87171" }}>Track</span></div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,.45)", marginTop: 4 }}>บริษัทเดอะเอ็มที <span style={{ color: "#10b981" }}>● Live</span></div>
+            </div>
+          </div>
         </div>
 
         {/* Menu */}
