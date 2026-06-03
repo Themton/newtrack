@@ -254,9 +254,9 @@ function LoginScreen({ onLogin, isDemo }) {
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #0f172a 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Sans Thai', -apple-system, sans-serif", padding: 20 }}>
       <div style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ width: 72, height: 72, background: "linear-gradient(135deg,#dc2626,#f97316)", borderRadius: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 36, marginBottom: 16, boxShadow: "0 8px 30px rgba(220,38,38,.3)" }}>⚡</div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#f8fafc", margin: 0 }}>Flash Backend</h1>
-          <p style={{ fontSize: 14, color: "#64748b", marginTop: 6 }}>ระบบจัดการพัสดุขนส่งแฟลช</p>
+          <div style={{ width: 72, height: 72, background: "linear-gradient(135deg,#dc2626,#f97316)", borderRadius: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 36, marginBottom: 16, boxShadow: "0 8px 30px rgba(220,38,38,.3)" }}>🚚</div>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#f8fafc", margin: 0 }}>ระบบจัดการขนส่ง</h1>
+          <p style={{ fontSize: 14, color: "#64748b", marginTop: 6 }}>บริษัทเดอะเอ็มที</p>
         </div>
         <div style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 20, padding: 32, backdropFilter: "blur(10px)" }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: "#f8fafc", margin: "0 0 24px", textAlign: "center" }}>เข้าสู่ระบบ</h2>
@@ -1804,7 +1804,7 @@ export default function FlashBackend() {
       <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", flexDirection: "column", alignItems: "center", padding: "40px 20px" }}>
         <div style={{ width: "100%", maxWidth: 800 }}>
           <div style={{ textAlign: "center", marginBottom: 30 }}>
-            <h1 style={{ fontSize: 28, fontWeight: 800, color: "#dc2626", margin: 0 }}>⚡ Flash Express</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 800, color: "#dc2626", margin: 0 }}>🚚 ระบบจัดการขนส่ง</h1>
             <p style={{ color: "#64748b", margin: "8px 0 0" }}>🔍 ค้นหาเลขพัสดุ / ชื่อ / เบอร์โทร</p>
           </div>
           <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
@@ -3215,8 +3215,8 @@ export default function FlashBackend() {
       <div style={{ width: 200, background: "#1a1a2e", color: "#fff", display: "flex", flexDirection: "column", position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 100, flexShrink: 0 }}>
         {/* Logo */}
         <div style={{ padding: "20px 16px 16px", borderBottom: "1px solid rgba(255,255,255,.08)" }}>
-          <div style={{ fontSize: 18, fontWeight: 800, color: "#f87171", display: "flex", alignItems: "center", gap: 8 }}>⚡ Flash Express</div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,.4)", marginTop: 2 }}>ระบบจัดการขนส่ง <span style={{ color: "#10b981" }}>● Live</span></div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#f87171", display: "flex", alignItems: "center", gap: 8 }}>🚚 ระบบจัดการขนส่ง</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,.4)", marginTop: 2 }}>บริษัทเดอะเอ็มที <span style={{ color: "#10b981" }}>● Live</span></div>
         </div>
 
         {/* Menu */}
