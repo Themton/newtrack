@@ -1547,7 +1547,11 @@ export default function FlashBackend() {
         prov: p.receiver_province || "",
         sname: p.sender_name || "",
         sphone: p.sender_phone || "",
-        saddr: `${p.sender_address || ""} ${p.sender_subdistrict || ""} ${p.sender_district || ""} ${p.sender_province || ""} ${p.sender_postal || ""}`.replace(/\s+/g, " ").trim(),
+        saddr: (() => {
+          let a = `${p.sender_address || ""}`.replace(/\s+/g, " ").trim();
+          [p.sender_subdistrict, p.sender_district, p.sender_province, p.sender_postal].filter(Boolean).forEach(e => { if (a && !a.includes(e)) a += " " + e; else if (!a) a = e; });
+          return a.replace(/(\S+\s+\d{5})\s+\1\s*$/, "$1").trim();
+        })(),
         rname: p.receiver_name || "",
         rphone: maskPhone(p.receiver_phone),
         raddr1: p.receiver_address || "",
