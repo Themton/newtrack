@@ -25,5 +25,9 @@ CREATE POLICY "fx_parcels_delete" ON fx_parcels FOR DELETE USING (true);
 ALTER TABLE fx_users DROP CONSTRAINT IF EXISTS fx_users_role_check;
 ALTER TABLE fx_users ADD CONSTRAINT fx_users_role_check CHECK (role IN ('admin','shipping','accounting','tracking'));
 
+-- 6) กระทบยอด COD
+ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS cod_received    BOOLEAN DEFAULT false;
+ALTER TABLE fx_parcels ADD COLUMN IF NOT EXISTS cod_received_at TIMESTAMPTZ;
+
 -- รีโหลด schema cache
 NOTIFY pgrst, 'reload schema';
