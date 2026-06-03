@@ -122,6 +122,18 @@ const flashApi = {
     try { const d = await res.json(); msg = d.message || msg; } catch {}
     throw new Error(msg);
   },
+  async fetchLabelBytes(pno, account, size) {
+    const res = await fetch(`${WORKER_URL}/flash-api/label`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pno, size: size || "", mchId: account?.mchId || FLASH_ACCOUNTS[0].mchId }),
+    });
+    const ct = res.headers.get("Content-Type") || "";
+    if (ct.includes("application/pdf")) return await res.arrayBuffer();
+    let msg = "ขอใบปะหน้าไม่สำเร็จ";
+    try { const d = await res.json(); msg = d.message || msg; } catch {}
+    throw new Error(msg);
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -1122,6 +1134,7 @@ export default function FlashBackend() {
   
   const [viewParcel, setViewParcel] = useState(null);
   const [printPreview, setPrintPreview] = useState(null); // array of parcels to preview before print
+  const [labelProgress, setLabelProgress] = useState(null); // {done,total} ระหว่างโหลดใบ Flash จำนวนมาก
   const [shops, setShops] = useState([]);
   const [page, setPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -3424,14 +3437,42 @@ export default function FlashBackend() {
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🖨️ ปริ้นใบปะหน้า — {printPreview.filter(p => p._print !== false).length} ใบ</h3>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button onClick={async () => {
+              <button disabled={!!labelProgress} onClick={async () => {
                 const list = printPreview.filter(p => p._print !== false && p.flash_pno);
                 if (!list.length) { alert("ไม่มีพัสดุที่มีเลข Flash ให้ปริ้น"); return; }
-                for (const p of list) {
-                  try { await flashApi.openLabel(p.flash_pno, getFlashAccount(p)); }
-                  catch (e) { alert("ใบ " + p.flash_pno + ": " + e.message); break; }
-                }
-              }} style={{ padding: "7px 12px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🏷️ ใบ Flash ทางการ</button>
+                setLabelProgress({ done: 0, total: list.length });
+                try {
+                  const { PDFDocument } = await import("pdf-lib");
+                  const merged = await PDFDocument.create();
+                  const fails = [];
+                  let done = 0;
+                  const CONCURRENCY = 8;
+                  const results = new Array(list.length);
+                  for (let i = 0; i < list.length; i += CONCURRENCY) {
+                    const slice = list.slice(i, i + CONCURRENCY);
+                    await Promise.all(slice.map(async (p, j) => {
+                      try { results[i + j] = await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small"); }
+                      catch { fails.push(p.flash_pno); results[i + j] = null; }
+                      setLabelProgress({ done: ++done, total: list.length });
+                    }));
+                  }
+                  for (const bytes of results) {
+                    if (!bytes) continue;
+                    try {
+                      const doc = await PDFDocument.load(bytes);
+                      const pages = await merged.copyPages(doc, doc.getPageIndices());
+                      pages.forEach(pg => merged.addPage(pg));
+                    } catch {}
+                  }
+                  if (merged.getPageCount() === 0) { alert("โหลดใบปะหน้าไม่สำเร็จทั้งหมด"); setLabelProgress(null); return; }
+                  const out = await merged.save();
+                  const u = URL.createObjectURL(new Blob([out], { type: "application/pdf" }));
+                  const w = window.open(u, "_blank");
+                  if (!w) { const a = document.createElement("a"); a.href = u; a.download = "flash-labels-" + merged.getPageCount() + ".pdf"; a.click(); }
+                  if (fails.length) alert("โหลดสำเร็จ " + merged.getPageCount() + " ใบ\nไม่สำเร็จ " + fails.length + " ใบ: " + fails.slice(0, 10).join(", "));
+                } catch (e) { alert("เกิดข้อผิดพลาด: " + e.message); }
+                setLabelProgress(null);
+              }} style={{ padding: "7px 12px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: labelProgress ? "wait" : "pointer", opacity: labelProgress ? 0.6 : 1 }}>🏷️ {labelProgress ? `โหลด ${labelProgress.done}/${labelProgress.total}` : "ใบ Flash (รวมไฟล์เดียว)"}</button>
               <button onClick={async () => {
                 const p = printPreview.find(x => x._print !== false) || printPreview[0];
                 if (!p) return;
