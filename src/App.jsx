@@ -583,7 +583,7 @@ function ParcelForm({ parcel, user, shops, onSave, onClose }) {
   const handleSave = async () => {
     if (!form.receiver_name || !form.receiver_phone) { uiAlert("กรุณากรอกชื่อ+เบอร์ผู้รับ"); return; }
     setSaving(true);
-    try { const d = { ...form }; delete d.id; delete d.created_at; delete d.updated_at; if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
+    try { const d = { ...form }; delete d.id; delete d.created_at; delete d.updated_at; if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
     setSaving(false);
   };
   const I = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
@@ -807,6 +807,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
       if (i % 5 === 4) await new Promise(r => setTimeout(r, 500));
     }
     setDone(true);
+    try { if (success > 0) await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "Import พัสดุ", detail: `${success} ใบ` }); } catch {}
     if (failedItems.length > 0) {
       setImportFailed(failedItems);
     }
