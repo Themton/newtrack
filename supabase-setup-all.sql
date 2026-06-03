@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS fx_users (
   username TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,                    -- SHA-256 hash (ฝั่ง client)
   display_name TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'shipping' CHECK (role IN ('admin','shipping','accounting')),
+  role TEXT NOT NULL DEFAULT 'shipping' CHECK (role IN ('admin','shipping','accounting','tracking')),
   avatar_color TEXT DEFAULT '#6366f1',
   is_active BOOLEAN DEFAULT true,
   last_login TIMESTAMPTZ,
@@ -255,7 +255,7 @@ DROP POLICY IF EXISTS "fx_parcels_delete" ON fx_parcels;
 CREATE POLICY "fx_parcels_select" ON fx_parcels FOR SELECT USING (true);
 CREATE POLICY "fx_parcels_insert" ON fx_parcels FOR INSERT WITH CHECK (true);
 CREATE POLICY "fx_parcels_update" ON fx_parcels FOR UPDATE USING (true) WITH CHECK (true);
-CREATE POLICY "fx_parcels_delete" ON fx_parcels FOR DELETE USING (status IN ('draft','cancelled'));
+CREATE POLICY "fx_parcels_delete" ON fx_parcels FOR DELETE USING (true);
 
 -- fx_users: ลบ admin ไม่ได้
 DROP POLICY IF EXISTS "fx_users_all" ON fx_users;
