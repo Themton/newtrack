@@ -1533,13 +1533,26 @@ export default function FlashBackend() {
     const maskPhone = (ph) => (ph || "").replace(/^(\d{3})\d{4}(\d{3})$/, "$1****$2");
     const now = new Date().toLocaleString("en-GB", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const total = targets.length;
-    const lblData = targets.map((p, i) => ({ i, pno: p.flash_pno || "", mch: (getFlashAccount(p) || {}).mchId || "" }));
+    const lblData = targets.map((p, i) => ({
+      i,
+      sc: p.flash_sort_code || "",
+      pno: p.flash_pno || "",
+      dist: p.receiver_district || "",
+      prov: p.receiver_province || "",
+      src: `ผู้ส่ง ${p.sender_name || ""} ${p.sender_phone || ""} ${p.sender_address || ""}`.trim(),
+      rname: p.receiver_name || "",
+      rphone: maskPhone(p.receiver_phone),
+      raddr1: p.receiver_address || "",
+      raddr2: `${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}`,
+      raddr3: `${p.receiver_province || ""} ${p.receiver_postal || ""}`.trim(),
+      cod: (p.cod_enabled && Number(p.cod_amount) > 0) ? Number(p.cod_amount) : 0,
+    }));
 
     let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ใบปะหน้า Flash Express (${total} ใบ)</title>`;
     html += `<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800;900&family=Noto+Sans+Thai:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>`;
     html += `<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>`;
     html += `<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>`;
-    html += `<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"><\/script>`;
+    html += `<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"><\/script>`;
     html += `<style>@page{size:100mm 75mm;margin:0}*{box-sizing:border-box}body{margin:0;padding:0;font-family:'Sarabun','Noto Sans Thai',Tahoma,Arial,sans-serif;background:#eee}`;
     html += `@media print{.no-print{display:none!important}.label.hide-print{display:none!important}body{background:#fff}}`;
     html += `.toolbar{background:linear-gradient(135deg,#1e293b,#334155);color:#fff;padding:14px;position:sticky;top:0;z-index:100}`;
@@ -1574,10 +1587,10 @@ export default function FlashBackend() {
     // Toolbar
     html += `<div class="no-print toolbar"><div class="toolbar-top">`;
     html += `<button class="btn-print" onclick="printSelected()">🖨️ ปริ้นที่เลือก</button>`;
-    html += `<button class="btn-dl" onclick="downloadOfficial()">📥 ดาวน์โหลดใบ Flash (รวมไฟล์เดียว)</button>`;
+    html += `<button class="btn-dl" onclick="downloadOurLabels()">📥 ดาวน์โหลด PDF (ใบของเรา)</button>`;
     html += `<span style="font-size:12px">ทั้งหมด ${total} ใบ</span>`;
     html += `</div>`;
-    html += `<div class="no-print" style="text-align:center;font-size:11px;color:#fbbf24;margin-bottom:8px;line-height:1.4">📥 <b>"ดาวน์โหลดใบ Flash"</b> = โหลดไฟล์ใบจริงจาก Flash รวมเป็น PDF ไฟล์เดียว (เร็ว) &nbsp;·&nbsp; 🖨️ <b>"ปริ้นที่เลือก"</b> = ปริ้นจากเบราว์เซอร์ทันที</div>`;
+    html += `<div class="no-print" style="text-align:center;font-size:11px;color:#fbbf24;margin-bottom:8px;line-height:1.4">📥 <b>"ดาวน์โหลด PDF (ใบของเรา)"</b> = ดาวน์โหลดไฟล์ใบปะหน้าดีไซน์ของระบบ รวมไฟล์เดียว เร็วทันที &nbsp;·&nbsp; 🖨️ <b>"ปริ้นที่เลือก"</b> = ปริ้นจากเบราว์เซอร์</div>`;
     html += `<div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap">`;
     html += `<button onclick="toggleAll(true)" style="padding:4px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;background:transparent;color:#10b981;font-size:11px;font-weight:700;cursor:pointer">☑ เลือกทั้งหมด</button>`;
     html += `<button onclick="toggleAll(false)" style="padding:4px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;background:transparent;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer">☐ ยกเลิกทั้งหมด</button>`;
@@ -1620,7 +1633,7 @@ export default function FlashBackend() {
 
     // Scripts
     html += `<script>`;
-    html += `var WURL=${JSON.stringify(WORKER_URL)};var LBLS=${JSON.stringify(lblData)};`;
+    html += `var LBLS=${JSON.stringify(lblData)};var PNOW=${JSON.stringify(now)};`;
     html += `function renderAll(){if(typeof JsBarcode==="undefined"||typeof qrcode==="undefined"){setTimeout(renderAll,200);return;}`;
     targets.forEach((p, i) => {
       const pno = (p.flash_pno || "").replace(/"/g, "");
@@ -1631,7 +1644,18 @@ export default function FlashBackend() {
     html += `function updateLabel(idx,checked){var el=document.getElementById("lbl"+idx);if(el){if(checked){el.classList.remove("hide-print");el.style.opacity="1";}else{el.classList.add("hide-print");el.style.opacity="0.3";}}}`;
     html += `function toggleAll(val){document.querySelectorAll("#pageSelect input").forEach(function(cb){cb.checked=val;updateLabel(parseInt(cb.dataset.idx),val);})}`;
     html += `function printSelected(){window.print();}`;
-    html += `async function downloadOfficial(){var btn=document.querySelector(".btn-dl");var sel=LBLS.filter(function(x){var el=document.getElementById("lbl"+x.i);return el&&!el.classList.contains("hide-print")&&x.pno;});if(!sel.length){alert("ไม่มีใบที่เลือก หรือไม่มีเลข Flash");return;}if(typeof PDFLib==="undefined"){alert("กำลังโหลดตัวรวมไฟล์ ลองใหม่อีกครั้ง");return;}btn.disabled=true;var origin=btn.innerHTML;btn.innerHTML="⏳ 0/"+sel.length;try{var merged=await PDFLib.PDFDocument.create();var res=new Array(sel.length);var done=0;var fails=[];var C=8;for(var s=0;s<sel.length;s+=C){var slice=sel.slice(s,s+C);await Promise.all(slice.map(async function(x,j){try{var r=await fetch(WURL+"/flash-api/label",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pno:x.pno,size:"small",mchId:x.mch})});var ct=r.headers.get("Content-Type")||"";if(ct.indexOf("application/pdf")>=0){res[s+j]=await r.arrayBuffer();}else{fails.push(x.pno);res[s+j]=null;}}catch(e){fails.push(x.pno);res[s+j]=null;}done++;btn.innerHTML="⏳ "+done+"/"+sel.length;}));}for(var k=0;k<res.length;k++){if(!res[k])continue;try{var doc=await PDFLib.PDFDocument.load(res[k]);var pgs=await merged.copyPages(doc,doc.getPageIndices());pgs.forEach(function(pg){merged.addPage(pg);});}catch(e){}}if(merged.getPageCount()===0){alert("โหลดใบปะหน้าไม่สำเร็จทั้งหมด");btn.disabled=false;btn.innerHTML=origin;return;}var bytes=await merged.save();var blob=new Blob([bytes],{type:"application/pdf"});var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="flash-labels-"+merged.getPageCount()+".pdf";document.body.appendChild(a);a.click();a.remove();btn.innerHTML="✅ ดาวน์โหลดแล้ว "+merged.getPageCount()+" ใบ"+(fails.length?(" (พลาด "+fails.length+")"):"");if(fails.length)alert("โหลดสำเร็จ "+merged.getPageCount()+" ใบ\\nไม่สำเร็จ "+fails.length+" ใบ: "+fails.slice(0,10).join(", "));setTimeout(function(){btn.innerHTML=origin;btn.disabled=false;},3000);}catch(e){alert("ผิดพลาด: "+e.message);btn.disabled=false;btn.innerHTML=origin;}}`;
+    html += `function cut(ctx,t,max){t=t||"";if(ctx.measureText(t).width<=max)return t;while(t.length&&ctx.measureText(t+"…").width>max)t=t.slice(0,-1);return t+"…";}`;
+    html += `function drawLbl(ctx,d,idx,total,W,H,now){ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.strokeStyle="#000";ctx.lineWidth=4;ctx.strokeRect(2,2,W-4,H-4);ctx.lineWidth=2;`;
+    html += `ctx.fillStyle="#000";ctx.textAlign="center";ctx.font="900 52px 'Sarabun','Noto Sans Thai',Tahoma,sans-serif";ctx.fillText(d.sc||"FLASH EXPRESS",W/2,60);ctx.beginPath();ctx.moveTo(0,80);ctx.lineTo(W,80);ctx.stroke();`;
+    html += `try{var bcv=document.createElement("canvas");JsBarcode(bcv,d.pno||" ",{format:"CODE128",width:2,height:80,displayValue:false,margin:0});ctx.drawImage(bcv,60,90,W-120,105);}catch(e){}ctx.beginPath();ctx.moveTo(0,205);ctx.lineTo(W,205);ctx.stroke();`;
+    html += `ctx.fillStyle="#f6f6f6";ctx.fillRect(2,205,W-4,46);ctx.fillStyle="#000";ctx.font="900 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.pno||"",W/2,238);ctx.beginPath();ctx.moveTo(0,251);ctx.lineTo(W,251);ctx.stroke();`;
+    html += `ctx.fillStyle="#222";ctx.fillRect(2,251,W-4,44);ctx.fillStyle="#fff";ctx.textAlign="left";ctx.font="700 24px 'Sarabun',Tahoma,sans-serif";ctx.fillText("DST  "+(d.dist||"")+" — "+(d.prov||""),20,282);`;
+    html += `ctx.fillStyle="#555";ctx.font="16px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.src,W-40),20,322);ctx.fillStyle="#000";ctx.font="800 26px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"ผู้รับ "+(d.rname||""),700),20,358);ctx.font="900 34px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.rphone||"",20,398);`;
+    html += `ctx.font="700 23px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.raddr1,700),20,432);ctx.fillText(cut(ctx,d.raddr2,700),20,462);ctx.fillText(cut(ctx,d.raddr3,700),20,492);`;
+    html += `try{var q=qrcode(0,"M");q.addData(d.pno||" ");q.make();var n=q.getModuleCount();var qs=190,qx=W-220,qy=300,cell=qs/n;ctx.fillStyle="#000";for(var r=0;r<n;r++)for(var c=0;c<n;c++)if(q.isDark(r,c))ctx.fillRect(qx+c*cell,qy+r*cell,Math.ceil(cell),Math.ceil(cell));}catch(e){}`;
+    html += `ctx.beginPath();ctx.moveTo(0,650);ctx.lineTo(W,650);ctx.stroke();if(d.cod>0){ctx.fillStyle="#000";ctx.fillRect(2,650,120,48);ctx.fillStyle="#fff";ctx.textAlign="left";ctx.font="900 24px 'Sarabun',Tahoma,sans-serif";ctx.fillText("COD",24,684);ctx.fillStyle="#000";ctx.font="900 28px 'Sarabun',Tahoma,sans-serif";ctx.fillText("เก็บเงินค่าสินค้า COD "+Number(d.cod).toLocaleString(),140,684);}else{ctx.fillStyle="#888";ctx.font="22px 'Sarabun',Tahoma,sans-serif";ctx.fillText("—",20,684);}ctx.beginPath();ctx.moveTo(0,700);ctx.lineTo(W,700);ctx.stroke();`;
+    html += `ctx.fillStyle="#999";ctx.font="14px 'Sarabun',Tahoma,sans-serif";ctx.textAlign="left";ctx.fillText("Print-: "+now,16,724);ctx.textAlign="center";ctx.fillText((idx+1)+"/"+total,W/2,724);ctx.textAlign="right";ctx.fillText("THE MT",W-16,724);ctx.textAlign="left";}`;
+    html += `async function downloadOurLabels(){var btn=document.querySelector(".btn-dl");var sel=LBLS.filter(function(x){var el=document.getElementById("lbl"+x.i);return el&&!el.classList.contains("hide-print");});if(!sel.length){alert("ไม่มีใบที่เลือก");return;}if(typeof jspdf==="undefined"||typeof JsBarcode==="undefined"||typeof qrcode==="undefined"){alert("กำลังโหลดไลบรารี ลองใหม่อีกครั้ง");return;}btn.disabled=true;var origin=btn.innerHTML;try{if(document.fonts&&document.fonts.ready){await document.fonts.ready;}}catch(e){}try{var W=1000,H=750;var pdf=new jspdf.jsPDF({orientation:"landscape",unit:"mm",format:[100,75]});var cv=document.createElement("canvas");cv.width=W;cv.height=H;var ctx=cv.getContext("2d");for(var idx=0;idx<sel.length;idx++){if(idx>0)pdf.addPage([100,75],"landscape");drawLbl(ctx,sel[idx],idx,sel.length,W,H,PNOW);var img=cv.toDataURL("image/jpeg",0.9);pdf.addImage(img,"JPEG",0,0,100,75);btn.innerHTML="⏳ "+(idx+1)+"/"+sel.length;if(idx%10===9)await new Promise(function(r){setTimeout(r,0);});}pdf.save("flash-labels-"+sel.length+".pdf");btn.innerHTML="✅ ดาวน์โหลดแล้ว "+sel.length+" ใบ";setTimeout(function(){btn.innerHTML=origin;btn.disabled=false;},3000);}catch(e){alert("ผิดพลาด: "+e.message);btn.disabled=false;btn.innerHTML=origin;}}`;
     html += `renderAll();`;
     html += `<\/script></body></html>`;
 
