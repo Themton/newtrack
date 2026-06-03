@@ -316,7 +316,7 @@ DROP POLICY IF EXISTS "fx_upsell_delete" ON fx_upsell;
 CREATE POLICY "fx_upsell_select" ON fx_upsell FOR SELECT USING (true);
 CREATE POLICY "fx_upsell_insert" ON fx_upsell FOR INSERT WITH CHECK (true);
 CREATE POLICY "fx_upsell_update" ON fx_upsell FOR UPDATE USING (true) WITH CHECK (true);
-CREATE POLICY "fx_upsell_delete" ON fx_upsell FOR DELETE USING (status IN ('pending','cancelled'));
+CREATE POLICY "fx_upsell_delete" ON fx_upsell FOR DELETE USING (true);
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- PART 10) Realtime (เพิ่มตารางเข้า publication — ข้ามถ้าเพิ่มแล้ว/ไม่มี publication)
