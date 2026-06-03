@@ -326,25 +326,25 @@ function UserManagement({ onClose, isDemo, inline }) {
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
   const handleAdd = async () => {
-    if (!form.username || !form.password || !form.display_name) { alert("กรุณากรอกข้อมูลให้ครบ"); return; }
+    if (!form.username || !form.password || !form.display_name) { uiAlert("กรุณากรอกข้อมูลให้ครบ"); return; }
     setSaving(true);
     try {
       const hash = await sha256(form.password);
       await sb.insert("fx_users", { username: form.username.toLowerCase().trim(), password: hash, display_name: form.display_name, role: form.role });
       setShowAdd(false); setForm({ username: "", password: "", display_name: "", role: "shipping" }); loadUsers();
-    } catch (e) { alert("Error: " + e.message); }
+    } catch (e) { uiAlert("Error: " + e.message); }
     setSaving(false);
   };
 
   const toggleActive = async (u) => {
     if (isDemo) return;
-    try { await sb.update("fx_users", u.id, { is_active: !u.is_active }); loadUsers(); } catch (e) { alert(e.message); }
+    try { await sb.update("fx_users", u.id, { is_active: !u.is_active }); loadUsers(); } catch (e) { uiAlert(e.message); }
   };
 
   const resetPassword = async (u) => {
     const newPass = prompt(`รีเซ็ตรหัสผ่าน ${u.display_name}\nพิมพ์รหัสผ่านใหม่:`);
     if (!newPass) return;
-    try { const hash = await sha256(newPass); await sb.update("fx_users", u.id, { password: hash }); alert("รีเซ็ตสำเร็จ"); } catch (e) { alert(e.message); }
+    try { const hash = await sha256(newPass); await sb.update("fx_users", u.id, { password: hash }); uiAlert("รีเซ็ตสำเร็จ"); } catch (e) { uiAlert(e.message); }
   };
 
   const I = { width: "100%", padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 14, outline: "none", fontFamily: "inherit" };
@@ -580,9 +580,9 @@ function ParcelForm({ parcel, user, shops, onSave, onClose }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const handleSave = async () => {
-    if (!form.receiver_name || !form.receiver_phone) { alert("กรุณากรอกชื่อ+เบอร์ผู้รับ"); return; }
+    if (!form.receiver_name || !form.receiver_phone) { uiAlert("กรุณากรอกชื่อ+เบอร์ผู้รับ"); return; }
     setSaving(true);
-    try { const d = { ...form }; delete d.id; delete d.created_at; delete d.updated_at; if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); } sb.broadcastChange(); onSave(); } catch (e) { alert(e.message); }
+    try { const d = { ...form }; delete d.id; delete d.created_at; delete d.updated_at; if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
     setSaving(false);
   };
   const I = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
@@ -764,12 +764,12 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
       const rejected = parsed.filter(r => !r.sale_person || !r.sale_person.trim());
       setRows(valid);
       setRejectedRows(rejected);
-    } catch (err) { alert("อ่านไฟล์ไม่ได้: " + err.message); }
+    } catch (err) { uiAlert("อ่านไฟล์ไม่ได้: " + err.message); }
   };
 
   const handleImport = async () => {
     const selected = rows.filter(r => r._selected);
-    if (!selected.length) { alert("ไม่มีรายการที่เลือก"); return; }
+    if (!selected.length) { uiAlert("ไม่มีรายการที่เลือก"); return; }
     const shop = shops?.find(s => s.id === selectedShop);
     setImporting(true);
     setImportTotal(selected.length);
@@ -1040,13 +1040,13 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
   const openEdit = (s) => { setEditId(s.id); setForm({ name: s.name || "", phone: s.phone || "", address: s.address || "", province: s.province || "", postal: s.postal || "", flash_mch_id: s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId || "" }); setShowForm(true); };
 
   const handleSave = async () => {
-    if (!form.name || !form.phone) { alert("กรุณากรอกชื่อร้าน + เบอร์โทร"); return; }
+    if (!form.name || !form.phone) { uiAlert("กรุณากรอกชื่อร้าน + เบอร์โทร"); return; }
     setSaving(true);
     try {
       if (editId) { await sb.update("fx_shops", editId, form); }
       else { await sb.insert("fx_shops", { ...form, is_active: true, is_default: shops.length === 0 }); }
       setShowForm(false); load(); onUpdate?.();
-    } catch (e) { alert(e.message); }
+    } catch (e) { uiAlert(e.message); }
     setSaving(false);
   };
 
@@ -1056,12 +1056,12 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
       const currentDefault = shops.find(sh => sh.is_default);
       if (currentDefault && currentDefault.id !== s.id) await sb.update("fx_shops", currentDefault.id, { is_default: false });
       await sb.update("fx_shops", s.id, { is_default: true }); load(); onUpdate?.();
-    } catch (e) { alert(e.message); }
+    } catch (e) { uiAlert(e.message); }
   };
 
   const deleteShop = async (s) => {
-    if (!confirm(`ลบร้าน ${s.name}?`)) return;
-    try { await sb.delete("fx_shops", s.id); load(); onUpdate?.(); } catch (e) { alert(e.message); }
+    if (!await uiConfirm(`ลบร้าน ${s.name}?`)) return;
+    try { await sb.delete("fx_shops", s.id); load(); onUpdate?.(); } catch (e) { uiAlert(e.message); }
   };
 
   const renderContent = () => (<>
@@ -1121,6 +1121,9 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
 // ═══════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════
+let _uiDialog = null;
+const uiConfirm = (message, opts = {}) => new Promise((resolve) => { if (_uiDialog) _uiDialog({ mode: "confirm", message, ...opts, resolve }); else resolve(window.confirm(message)); });
+const uiAlert = (message, opts = {}) => new Promise((resolve) => { if (_uiDialog) _uiDialog({ mode: "alert", message, ...opts, resolve }); else { window.alert(message); resolve(); } });
 export default function FlashBackend() {
   const [user, setUser] = useState(() => {
     try { const s = sessionStorage.getItem("fx_user"); return s ? JSON.parse(s) : null; } catch { return null; }
@@ -1381,7 +1384,7 @@ export default function FlashBackend() {
   // แจ้งเตือน: พัสดุที่มีเลข Tracking แต่ Flash ยังไม่รับเข้าระบบ
   const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && (!p.flash_status || p.flash_status === "สร้างรายการ")), [parcels]);
 
-  const handleDelete = async (p) => { if (!confirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); await sb.broadcastChange(); } catch (e) { alert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
+  const handleDelete = async (p) => { if (!await uiConfirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); await sb.broadcastChange(); } catch (e) { uiAlert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
   const markPrinted = async (p) => {
     mutating.current = true;
     try {
@@ -1389,7 +1392,7 @@ export default function FlashBackend() {
       await sb.broadcastChange();
       await loadParcels();
       showToast("✅ เปลี่ยนเป็นปริ้นแล้ว");
-    } catch (e) { alert("❌ " + e.message); }
+    } catch (e) { uiAlert("❌ " + e.message); }
     setTimeout(() => { mutating.current = false; }, 2000);
   };
 
@@ -1400,7 +1403,7 @@ export default function FlashBackend() {
       await sb.broadcastChange();
       await loadParcels();
       showToast("เปลี่ยนกลับเป็นสร้างเลขแล้ว");
-    } catch (e) { alert("❌ " + e.message); }
+    } catch (e) { uiAlert("❌ " + e.message); }
     setTimeout(() => { mutating.current = false; }, 2000);
   };
 
@@ -1409,6 +1412,8 @@ export default function FlashBackend() {
   const [globalLoading, setGlobalLoading] = useState(null); // { msg, progress }
   const [toast, setToast] = useState(null); // { msg, type }
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+  const [uiDlg, setUiDlg] = useState(null);
+  useEffect(() => { _uiDialog = setUiDlg; return () => { _uiDialog = null; }; }, []);
   // Get Flash account for a parcel (from its shop)
   const getFlashAccount = (p) => {
     const shop = shops?.find(s => s.id === p.shop_id);
@@ -1417,11 +1422,11 @@ export default function FlashBackend() {
   };
 
   const createFlashOrder = async (p) => {
-    if (p.flash_pno) { alert("พัสดุนี้มีเลข Tracking แล้ว: " + p.flash_pno); return; }
-    if (!p.receiver_name || !p.receiver_phone) { alert(`❌ ${p.receiver_name}\nกรุณากรอกชื่อและเบอร์ผู้รับก่อน`); return; }
-    if (!p.receiver_province && !p.receiver_postal) { alert(`❌ ${p.receiver_name}\nกรุณากรอกจังหวัดหรือรหัสไปรษณีย์ผู้รับ`); return; }
+    if (p.flash_pno) { uiAlert("พัสดุนี้มีเลข Tracking แล้ว: " + p.flash_pno); return; }
+    if (!p.receiver_name || !p.receiver_phone) { uiAlert(`❌ ${p.receiver_name}\nกรุณากรอกชื่อและเบอร์ผู้รับก่อน`); return; }
+    if (!p.receiver_province && !p.receiver_postal) { uiAlert(`❌ ${p.receiver_name}\nกรุณากรอกจังหวัดหรือรหัสไปรษณีย์ผู้รับ`); return; }
     const acc = getFlashAccount(p);
-    if (!confirm(`สร้างเลข Tracking Flash Express?\n\nบัญชี: ${acc.mchId}\nผู้รับ: ${p.receiver_name}\nเบอร์: ${p.receiver_phone}`)) return;
+    if (!await uiConfirm(`สร้างเลข Tracking Flash Express?\n\nบัญชี: ${acc.mchId}\nผู้รับ: ${p.receiver_name}\nเบอร์: ${p.receiver_phone}`)) return;
     setFlashLoading(p.id);
     mutating.current = true;
     try {
@@ -1439,16 +1444,16 @@ export default function FlashBackend() {
         showToast(`สร้างเลข Tracking สำเร็จ! ${updates.flash_pno}`);
         sb.broadcastChange();
       } else {
-        alert(`❌ Flash API Error (code: ${result.code}):\n${result.message || ""}\n${result.data ? "\nรายละเอียด: " + JSON.stringify(result.data) : ""}\n\n📤 ผู้ส่ง: ${p.sender_name || "❌"} | ${p.sender_phone || "❌"}\nที่อยู่ส่ง: ${p.sender_address || "❌"} | ${p.sender_province || "❌"} | ปณ.${p.sender_postal || "❌"}\n\n📥 ผู้รับ: ${p.receiver_name} | ${p.receiver_phone}\nจังหวัด: ${p.receiver_province || "❌"} | อำเภอ: ${p.receiver_district || "❌"}\nตำบล: ${p.receiver_subdistrict || "❌"} | ปณ.${p.receiver_postal || "❌"}\nที่อยู่: ${p.receiver_address || "❌"}`);
+        uiAlert(`❌ Flash API Error (code: ${result.code}):\n${result.message || ""}\n${result.data ? "\nรายละเอียด: " + JSON.stringify(result.data) : ""}\n\n📤 ผู้ส่ง: ${p.sender_name || "❌"} | ${p.sender_phone || "❌"}\nที่อยู่ส่ง: ${p.sender_address || "❌"} | ${p.sender_province || "❌"} | ปณ.${p.sender_postal || "❌"}\n\n📥 ผู้รับ: ${p.receiver_name} | ${p.receiver_phone}\nจังหวัด: ${p.receiver_province || "❌"} | อำเภอ: ${p.receiver_district || "❌"}\nตำบล: ${p.receiver_subdistrict || "❌"} | ปณ.${p.receiver_postal || "❌"}\nที่อยู่: ${p.receiver_address || "❌"}`);
       }
-    } catch (e) { alert("เชื่อมต่อ Flash API ไม่ได้:\n" + e.message); }
+    } catch (e) { uiAlert("เชื่อมต่อ Flash API ไม่ได้:\n" + e.message); }
     setFlashLoading(null);
     setTimeout(() => { mutating.current = false; }, 1000);
   };
 
   const cancelFlashOrder = async (p) => {
-    if (!p.flash_pno) { alert("พัสดุนี้ยังไม่มีเลข Tracking"); return; }
-    if (!confirm(`ยกเลิกเลขพัสดุ?\n\n${p.flash_pno}\nผู้รับ: ${p.receiver_name}\n\n⚠️ จะยกเลิกจากระบบ Flash Express ด้วย`)) return;
+    if (!p.flash_pno) { uiAlert("พัสดุนี้ยังไม่มีเลข Tracking"); return; }
+    if (!await uiConfirm(`ยกเลิกเลขพัสดุ?\n\n${p.flash_pno}\nผู้รับ: ${p.receiver_name}\n\n⚠️ จะยกเลิกจากระบบ Flash Express ด้วย`)) return;
     mutating.current = true;
     setFlashLoading(p.id);
     try {
@@ -1462,9 +1467,9 @@ export default function FlashBackend() {
         showToast(`ยกเลิกเลขพัสดุ ${p.flash_pno} สำเร็จ`);
         sb.broadcastChange();
       } else {
-        alert(`❌ ยกเลิกไม่สำเร็จ\n\nCode: ${result.code}\nMessage: ${result.message || "ไม่มีข้อความ"}\n\nรายละเอียด: ${JSON.stringify(result.data || result, null, 2)}\n\n⚠️ พัสดุอาจถูกรับแล้ว หรือยกเลิกไม่ได้`);
+        uiAlert(`❌ ยกเลิกไม่สำเร็จ\n\nCode: ${result.code}\nMessage: ${result.message || "ไม่มีข้อความ"}\n\nรายละเอียด: ${JSON.stringify(result.data || result, null, 2)}\n\n⚠️ พัสดุอาจถูกรับแล้ว หรือยกเลิกไม่ได้`);
         // ถามว่าต้องการยกเลิกในระบบอย่างเดียวไหม
-        if (confirm("ต้องการยกเลิกเฉพาะในระบบหลังบ้านไหม?\n(ไม่ยกเลิกฝั่ง Flash Express)")) {
+        if (await uiConfirm("ต้องการยกเลิกเฉพาะในระบบหลังบ้านไหม?\n(ไม่ยกเลิกฝั่ง Flash Express)")) {
           const updates = { status: "cancelled" };
           if (!isDemo) await sb.update("fx_parcels", p.id, updates);
           setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
@@ -1472,7 +1477,7 @@ export default function FlashBackend() {
           sb.broadcastChange();
         }
       }
-    } catch (e) { alert("เชื่อมต่อ Flash API ไม่ได้:\n" + e.message); }
+    } catch (e) { uiAlert("เชื่อมต่อ Flash API ไม่ได้:\n" + e.message); }
     setFlashLoading(null);
   };
 
@@ -1481,8 +1486,8 @@ export default function FlashBackend() {
   const [cancelProgress, setCancelProgress] = useState(null);
   const batchCreateFlash = async () => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && !p.flash_pno && p.receiver_name && p.receiver_phone);
-    if (!targets.length) { alert("ไม่มีรายการที่เลือก (ต้องยังไม่มีเลข Tracking + มีข้อมูลผู้รับ)"); return; }
-    if (!confirm(`สร้างเลข Tracking Flash Express ${targets.length} รายการ?`)) return;
+    if (!targets.length) { uiAlert("ไม่มีรายการที่เลือก (ต้องยังไม่มีเลข Tracking + มีข้อมูลผู้รับ)"); return; }
+    if (!await uiConfirm(`สร้างเลข Tracking Flash Express ${targets.length} รายการ?`)) return;
     setBatchProgress({ total: targets.length, done: 0, success: 0, errors: [] });
     let success = 0; const errors = [];
     for (let i = 0; i < targets.length; i++) {
@@ -1505,7 +1510,7 @@ export default function FlashBackend() {
     setBatchProgress(null);
     sb.broadcastChange();
     if (errors.length) {
-      alert(`❌ สร้างเลข Tracking สำเร็จ ${success}/${targets.length} รายการ\n\nรายการที่ไม่สำเร็จ:\n${errors.slice(0, 20).join("\n")}${errors.length > 20 ? "\n... อีก " + (errors.length - 20) + " รายการ" : ""}`);
+      uiAlert(`❌ สร้างเลข Tracking สำเร็จ ${success}/${targets.length} รายการ\n\nรายการที่ไม่สำเร็จ:\n${errors.slice(0, 20).join("\n")}${errors.length > 20 ? "\n... อีก " + (errors.length - 20) + " รายการ" : ""}`);
     }
     if (success > 0) {
       showToast(`สร้างเลข Tracking สำเร็จ ${success} รายการ`);
@@ -1682,8 +1687,8 @@ export default function FlashBackend() {
 
   const batchMarkPrinted = async () => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && p.flash_pno && p.status === "created");
-    if (!targets.length) { alert("ไม่มีรายการที่เปลี่ยนได้\n(ต้องมีเลข Tracking + สถานะ \"สร้างเลขแล้ว\")"); return; }
-    if (!confirm(`เปลี่ยนสถานะเป็น "ปริ้นแล้ว" ${targets.length} รายการ?`)) return;
+    if (!targets.length) { uiAlert("ไม่มีรายการที่เปลี่ยนได้\n(ต้องมีเลข Tracking + สถานะ \"สร้างเลขแล้ว\")"); return; }
+    if (!await uiConfirm(`เปลี่ยนสถานะเป็น "ปริ้นแล้ว" ${targets.length} รายการ?`)) return;
     mutating.current = true;
     try {
       const ids = targets.map(t => t.id).join(",");
@@ -1693,7 +1698,7 @@ export default function FlashBackend() {
       showToast(`✅ เปลี่ยนสถานะสำเร็จ ${targets.length} รายการ`);
       setSelectedIds(new Set());
     } catch (e) {
-      alert("❌ เปลี่ยนสถานะไม่ได้: " + e.message);
+      uiAlert("❌ เปลี่ยนสถานะไม่ได้: " + e.message);
       await loadParcels();
     }
     setTimeout(() => { mutating.current = false; }, 2000);
@@ -1701,14 +1706,14 @@ export default function FlashBackend() {
 
   const batchPrint = async () => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && p.flash_pno);
-    if (!targets.length) { alert("ไม่มีรายการที่มีเลข Tracking ให้ปริ้น"); return; }
+    if (!targets.length) { uiAlert("ไม่มีรายการที่มีเลข Tracking ให้ปริ้น"); return; }
     setPrintPreview(targets.map(p => ({ ...p })));
   };
 
   const batchCancelFlash = async () => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && p.flash_pno && p.status !== "cancelled");
-    if (!targets.length) { alert("ไม่มีรายการที่ยกเลิกได้\n(ต้องมีเลข Tracking และยังไม่ถูกยกเลิก)"); return; }
-    if (!confirm(`ยกเลิก ${targets.length} เลขพัสดุ?\n\n⚠️ จะยกเลิกจากระบบ Flash Express ด้วย\n(ยกเลิกได้เฉพาะพัสดุที่ยังไม่ถูกรับเข้าระบบ)`)) return;
+    if (!targets.length) { uiAlert("ไม่มีรายการที่ยกเลิกได้\n(ต้องมีเลข Tracking และยังไม่ถูกยกเลิก)"); return; }
+    if (!await uiConfirm(`ยกเลิก ${targets.length} เลขพัสดุ?\n\n⚠️ จะยกเลิกจากระบบ Flash Express ด้วย\n(ยกเลิกได้เฉพาะพัสดุที่ยังไม่ถูกรับเข้าระบบ)`)) return;
     mutating.current = true;
     let ok = 0; const failList = []; let done = 0;
     setCancelProgress({ done: 0, total: targets.length });
@@ -1731,7 +1736,7 @@ export default function FlashBackend() {
     setSelectedIds(new Set());
     try { await sb.broadcastChange(); } catch {}
     setTimeout(() => { mutating.current = false; }, 1500);
-    if (failList.length && confirm(`ยกเลิกฝั่ง Flash สำเร็จ ${ok} ใบ\nไม่สำเร็จ ${failList.length} ใบ (อาจถูกรับเข้าระบบแล้ว)\n\nต้องการทำเครื่องหมาย "ยกเลิก" ให้ ${failList.length} ใบที่เหลือเฉพาะในระบบหลังบ้านไหม?`)) {
+    if (failList.length && await uiConfirm(`ยกเลิกฝั่ง Flash สำเร็จ ${ok} ใบ\nไม่สำเร็จ ${failList.length} ใบ (อาจถูกรับเข้าระบบแล้ว)\n\nต้องการทำเครื่องหมาย "ยกเลิก" ให้ ${failList.length} ใบที่เหลือเฉพาะในระบบหลังบ้านไหม?`)) {
       const fails = parcels.filter(p => failList.includes(p.flash_pno));
       for (const p of fails) { try { if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" }); setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x)); } catch {} }
       try { await sb.broadcastChange(); } catch {}
@@ -1744,7 +1749,7 @@ export default function FlashBackend() {
   const batchDelete = async () => {
     const targets = parcels.filter(p => selectedIds.has(p.id));
     if (!targets.length) return;
-    if (!confirm(`ลบ ${targets.length} รายการ?`)) return;
+    if (!await uiConfirm(`ลบ ${targets.length} รายการ?`)) return;
     let success = 0;
     for (let i = 0; i < targets.length; i++) {
       setGlobalLoading({ msg: `กำลังลบ ${i + 1}/${targets.length}`, progress: Math.round(((i + 1) / targets.length) * 100) });
@@ -2357,7 +2362,7 @@ export default function FlashBackend() {
           <button onClick={loadParcels} style={{ padding: "10px 16px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>🔄 รีเฟรช</button>
           <button onClick={() => {
             const data = filtered;
-            if (!data.length) { alert("ไม่มีข้อมูลที่จะ Export"); return; }
+            if (!data.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
             const bom = "\uFEFF";
             const headers = ["ลำดับ","วันที่","ลูกค้า","เบอร์โทร","เลข Tracking","Sort Code","สถานะ Flash","รายละเอียดล่าสุด","อัพเดตล่าสุด","สถานะระบบ","COD","ยอด COD","ร้านค้า","ที่อยู่","ตำบล","อำเภอ","จังหวัด","รหัสไปรษณีย์","หมายเหตุ"];
             const rows = data.map((p, i) => {
@@ -2686,7 +2691,7 @@ export default function FlashBackend() {
       const wb = XLSX.read(ab);
       const ws = wb.Sheets[wb.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-      if (data.length < 2) { alert("ไม่พบข้อมูลในไฟล์"); return; }
+      if (data.length < 2) { uiAlert("ไม่พบข้อมูลในไฟล์"); return; }
       let headerIdx = 0;
       for (let i = 0; i < Math.min(5, data.length); i++) {
         const row = data[i];
@@ -2773,13 +2778,13 @@ export default function FlashBackend() {
         await sb.update("fx_upsell", item.id, { status: newStatus, upsell_by: user.display_name });
         setUpsellData(prev => prev.map(x => x.id === item.id ? { ...x, status: newStatus, upsell_by: user.display_name } : x));
         showToast(newStatus === "success" ? "อัพเซลล์สำเร็จ ✅" : "ยกเลิกแล้ว");
-      } catch (e) { alert(e.message); }
+      } catch (e) { uiAlert(e.message); }
     };
 
     const createParcelFromUpsell = async (item, shopOverride) => {
       try {
         const shop = shopOverride || (upsellShop ? shops?.find(s => s.id === upsellShop) : null) || shops?.find(s => s.is_default) || shops?.[0];
-        if (!shop) { alert("กรุณาเลือกร้านค้าก่อน"); return false; }
+        if (!shop) { uiAlert("กรุณาเลือกร้านค้าก่อน"); return false; }
         const parcelData = {
           parcel_no: "P" + Date.now().toString(36).toUpperCase(),
           status: "draft",
@@ -2811,15 +2816,15 @@ export default function FlashBackend() {
         try { await sb.broadcastChange(); } catch {}
         showToast(`สร้างพัสดุ ${item.receiver_name} สำเร็จ → ไปหน้าจัดส่ง`);
         return true;
-      } catch (e) { alert("สร้างพัสดุไม่ได้: " + e.message); return false; }
+      } catch (e) { uiAlert("สร้างพัสดุไม่ได้: " + e.message); return false; }
     };
 
     const batchCreateParcels = async () => {
-      if (!upsellShop && shops?.length > 1) { alert("กรุณาเลือกร้านค้าก่อนสร้างพัสดุ"); return; }
+      if (!upsellShop && shops?.length > 1) { uiAlert("กรุณาเลือกร้านค้าก่อนสร้างพัสดุ"); return; }
       const targets = upsellData.filter(p => p.status !== "success" && p.status !== "cancelled" && !p.parcel_created);
-      if (!targets.length) { alert("ไม่มีรายการที่ต้องสร้างพัสดุ"); return; }
+      if (!targets.length) { uiAlert("ไม่มีรายการที่ต้องสร้างพัสดุ"); return; }
       const shop = upsellShop ? shops?.find(s => s.id === upsellShop) : shops?.find(s => s.is_default) || shops?.[0];
-      if (!confirm(`สร้างพัสดุ ${targets.length} รายการ?\nร้านค้า: ${shop?.name || "ค่าเริ่มต้น"}`)) return;
+      if (!await uiConfirm(`สร้างพัสดุ ${targets.length} รายการ?\nร้านค้า: ${shop?.name || "ค่าเริ่มต้น"}`)) return;
       let success = 0;
       for (const item of targets) {
         try { await createParcelFromUpsell(item); success++; } catch {}
@@ -2831,7 +2836,7 @@ export default function FlashBackend() {
 
     const exportUpsell = () => {
       const data = upsellSelected.size > 0 ? filtered.filter(p => upsellSelected.has(p.id)) : filtered;
-      if (!data.length) { alert("ไม่มีข้อมูล — เลือกรายชื่อหรือเปลี่ยนตัวกรอง"); return; }
+      if (!data.length) { uiAlert("ไม่มีข้อมูล — เลือกรายชื่อหรือเปลี่ยนตัวกรอง"); return; }
       const bom = "\uFEFF";
       const headers = ["ลำดับ","ชื่อ","เบอร์","ที่อยู่","หมายเหตุ/สินค้า","ยอด","สถานะ","ดำเนินการโดย","วันที่สร้าง"];
       const rows = data.map((p, i) => {
@@ -2956,10 +2961,10 @@ export default function FlashBackend() {
           {upsellSelected.size > 0 && (
             <div style={{ padding: "10px 16px", background: "linear-gradient(135deg,#eef2ff,#faf5ff)", borderBottom: "1px solid #c7d2fe", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>✓ เลือก {upsellSelected.size} รายการ</span>
-              <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending"); if (!targets.length) { alert("ไม่มีรายการรอดำเนินการ"); return; } for (const t of targets) await updateStatus(t, "success"); setUpsellSelected(new Set()); }} style={{ padding: "7px 14px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>✅ สำเร็จ ({upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending").length})</button>
-              <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending"); if (!targets.length) { alert("ไม่มีรายการรอดำเนินการ"); return; } for (const t of targets) await updateStatus(t, "cancelled"); setUpsellSelected(new Set()); }} style={{ padding: "7px 14px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>❌ ยกเลิก ({upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending").length})</button>
-              <button onClick={async () => { if (!upsellShop && shops?.length > 1) { alert("กรุณาเลือกร้านค้าก่อนสร้างพัสดุ"); return; } const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created); if (!targets.length) { alert("ไม่มีรายการที่สร้างพัสดุได้"); return; } const shop = upsellShop ? shops?.find(s => s.id === upsellShop) : shops?.find(s => s.is_default) || shops?.[0]; if (!confirm(`สร้างพัสดุ ${targets.length} รายการ?\nร้านค้า: ${shop?.name || "ค่าเริ่มต้น"}`)) return; for (const t of targets) { try { await createParcelFromUpsell(t); } catch {} } setUpsellSelected(new Set()); showToast(`สร้างพัสดุ ${targets.length} รายการ`); loadParcels(); }} style={{ padding: "7px 14px", background: "#4f46e5", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>📦 สร้างพัสดุ ({upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created).length})</button>
-              {perm.delete && <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id)); if (!targets.length) return; if (!confirm(`ลบ ${targets.length} รายการ upsell?\n\n⚠️ ลบถาวร กู้คืนไม่ได้`)) return; let n = 0; for (const t of targets) { try { if (!isDemo) await sb.delete("fx_upsell", t.id); n++; } catch {} } setUpsellSelected(new Set()); await loadUpsell(); showToast(`ลบแล้ว ${n} รายการ`); }} style={{ padding: "7px 14px", background: "#b91c1c", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🗑️ ลบ ({upsellSelected.size})</button>}
+              <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending"); if (!targets.length) { uiAlert("ไม่มีรายการรอดำเนินการ"); return; } for (const t of targets) await updateStatus(t, "success"); setUpsellSelected(new Set()); }} style={{ padding: "7px 14px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>✅ สำเร็จ ({upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending").length})</button>
+              <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending"); if (!targets.length) { uiAlert("ไม่มีรายการรอดำเนินการ"); return; } for (const t of targets) await updateStatus(t, "cancelled"); setUpsellSelected(new Set()); }} style={{ padding: "7px 14px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>❌ ยกเลิก ({upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending").length})</button>
+              <button onClick={async () => { if (!upsellShop && shops?.length > 1) { uiAlert("กรุณาเลือกร้านค้าก่อนสร้างพัสดุ"); return; } const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created); if (!targets.length) { uiAlert("ไม่มีรายการที่สร้างพัสดุได้"); return; } const shop = upsellShop ? shops?.find(s => s.id === upsellShop) : shops?.find(s => s.is_default) || shops?.[0]; if (!await uiConfirm(`สร้างพัสดุ ${targets.length} รายการ?\nร้านค้า: ${shop?.name || "ค่าเริ่มต้น"}`)) return; for (const t of targets) { try { await createParcelFromUpsell(t); } catch {} } setUpsellSelected(new Set()); showToast(`สร้างพัสดุ ${targets.length} รายการ`); loadParcels(); }} style={{ padding: "7px 14px", background: "#4f46e5", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>📦 สร้างพัสดุ ({upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created).length})</button>
+              {perm.delete && <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id)); if (!targets.length) return; if (!await uiConfirm(`ลบ ${targets.length} รายการ upsell?\n\n⚠️ ลบถาวร กู้คืนไม่ได้`)) return; let n = 0; for (const t of targets) { try { if (!isDemo) await sb.delete("fx_upsell", t.id); n++; } catch {} } setUpsellSelected(new Set()); await loadUpsell(); showToast(`ลบแล้ว ${n} รายการ`); }} style={{ padding: "7px 14px", background: "#b91c1c", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🗑️ ลบ ({upsellSelected.size})</button>}
               <button onClick={() => setUpsellSelected(new Set())} style={{ padding: "7px 12px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>✕ ยกเลิก</button>
             </div>
           )}
@@ -3025,7 +3030,7 @@ export default function FlashBackend() {
 
     const doExport = async (format) => {
       const data = getExportData();
-      if (!data.length) { alert("ไม่มีข้อมูลที่จะ Export"); return; }
+      if (!data.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
       setExporting(true);
 
       // ProShip format (ตรงกับไฟล์ Import) + คอลัมน์เพิ่ม
@@ -3359,7 +3364,7 @@ export default function FlashBackend() {
                         if (updated) summary.push(`✅ เข้าระบบแล้ว: ${updated}`);
                         if (still) summary.push(`⏳ ยังไม่เข้าระบบ: ${still}`);
                         if (errors) summary.push(`❌ ไม่พบ/Error: ${errors}`);
-                        alert(`ผล Sync (แยกตาม account):\n${summary.join("\n")}\n\n--- รายละเอียด ---\n${details.join("\n")}`);
+                        uiAlert(`ผล Sync (แยกตาม account):\n${summary.join("\n")}\n\n--- รายละเอียด ---\n${details.join("\n")}`);
                         if (updated) loadParcels();
                       }} disabled={flashRefreshing} style={{ padding: "5px 14px", background: flashRefreshing ? "#94a3b8" : "#4f46e5", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: flashRefreshing ? "wait" : "pointer" }}>{flashRefreshing ? "⟳ กำลัง sync..." : `🔄 Sync ${notInFlash.length} รายการ`}</button>
                     </div>
@@ -3488,6 +3493,21 @@ export default function FlashBackend() {
         </div>
       </div>
 
+      {/* CUSTOM DIALOG (แทน confirm/alert ของเบราว์เซอร์) */}
+      {uiDlg && (
+        <div onClick={() => { uiDlg.resolve(uiDlg.mode === "confirm" ? false : undefined); setUiDlg(null); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000, padding: 20, animation: "fadeIn .15s ease" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: "28px 26px 20px", width: "100%", maxWidth: 430, boxShadow: "0 24px 70px rgba(0,0,0,.35)", animation: "popIn .2s ease" }}>
+            <div style={{ fontSize: 40, textAlign: "center", marginBottom: 6 }}>{uiDlg.icon || (uiDlg.mode === "confirm" ? (uiDlg.danger ? "⚠️" : "❓") : "ℹ️")}</div>
+            {uiDlg.title && <div style={{ fontSize: 18, fontWeight: 800, textAlign: "center", marginBottom: 8, color: "#0f172a" }}>{uiDlg.title}</div>}
+            <div style={{ fontSize: 14.5, color: "#475569", textAlign: "center", whiteSpace: "pre-wrap", lineHeight: 1.55, marginBottom: 24, maxHeight: 320, overflowY: "auto" }}>{uiDlg.message}</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              {uiDlg.mode === "confirm" && <button onClick={() => { uiDlg.resolve(false); setUiDlg(null); }} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#475569", fontFamily: "inherit" }}>{uiDlg.cancelText || "ยกเลิก"}</button>}
+              <button autoFocus onClick={() => { uiDlg.resolve(uiDlg.mode === "confirm" ? true : undefined); setUiDlg(null); }} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "none", background: uiDlg.danger ? "#dc2626" : "#4f46e5", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>{uiDlg.okText || (uiDlg.mode === "confirm" ? "ยืนยัน" : "ตกลง")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOAST NOTIFICATION */}
       {toast && (
         <div style={{ position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)", zIndex: 99999, animation: "slideDown .3s ease" }}>
@@ -3497,7 +3517,7 @@ export default function FlashBackend() {
           </div>
         </div>
       )}
-      <style>{`@keyframes slideDown { from{opacity:0;transform:translateX(-50%) translateY(-20px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }`}</style>
+      <style>{`@keyframes slideDown { from{opacity:0;transform:translateX(-50%) translateY(-20px)} to{opacity:1;transform:translateX(-50%) translateY(0)} } @keyframes fadeIn { from{opacity:0} to{opacity:1} } @keyframes popIn { from{opacity:0;transform:scale(.92)} to{opacity:1;transform:scale(1)} }`}</style>
 
       {/* LOADING OVERLAY — เฉพาะ batch operations */}
       {globalLoading?.progress && (
@@ -3521,7 +3541,7 @@ export default function FlashBackend() {
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button disabled={!!labelProgress} onClick={async () => {
                 const list = printPreview.filter(p => p._print !== false && p.flash_pno);
-                if (!list.length) { alert("ไม่มีพัสดุที่มีเลข Flash ให้ปริ้น"); return; }
+                if (!list.length) { uiAlert("ไม่มีพัสดุที่มีเลข Flash ให้ปริ้น"); return; }
                 setLabelProgress({ done: 0, total: list.length });
                 try {
                   const { PDFDocument } = await import("pdf-lib");
@@ -3546,24 +3566,24 @@ export default function FlashBackend() {
                       pages.forEach(pg => merged.addPage(pg));
                     } catch {}
                   }
-                  if (merged.getPageCount() === 0) { alert("โหลดใบปะหน้าไม่สำเร็จทั้งหมด"); setLabelProgress(null); return; }
+                  if (merged.getPageCount() === 0) { uiAlert("โหลดใบปะหน้าไม่สำเร็จทั้งหมด"); setLabelProgress(null); return; }
                   const out = await merged.save();
                   const u = URL.createObjectURL(new Blob([out], { type: "application/pdf" }));
                   const w = window.open(u, "_blank");
                   if (!w) { const a = document.createElement("a"); a.href = u; a.download = "flash-labels-" + merged.getPageCount() + ".pdf"; a.click(); }
-                  if (fails.length) alert("โหลดสำเร็จ " + merged.getPageCount() + " ใบ\nไม่สำเร็จ " + fails.length + " ใบ: " + fails.slice(0, 10).join(", "));
-                } catch (e) { alert("เกิดข้อผิดพลาด: " + e.message); }
+                  if (fails.length) uiAlert("โหลดสำเร็จ " + merged.getPageCount() + " ใบ\nไม่สำเร็จ " + fails.length + " ใบ: " + fails.slice(0, 10).join(", "));
+                } catch (e) { uiAlert("เกิดข้อผิดพลาด: " + e.message); }
                 setLabelProgress(null);
               }} style={{ padding: "7px 12px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: labelProgress ? "wait" : "pointer", opacity: labelProgress ? 0.6 : 1 }}>🏷️ {labelProgress ? `โหลด ${labelProgress.done}/${labelProgress.total}` : "ใบ Flash (รวมไฟล์เดียว)"}</button>
               <button onClick={async () => {
                 const p = printPreview.find(x => x._print !== false) || printPreview[0];
                 if (!p) return;
-                if (!confirm("เรียกพนักงาน Flash เข้ารับพัสดุที่ที่อยู่ผู้ส่ง?\n" + (p.sender_name || "") + " " + (p.sender_phone || ""))) return;
+                if (!await uiConfirm("เรียกพนักงาน Flash เข้ารับพัสดุที่ที่อยู่ผู้ส่ง?\n" + (p.sender_name || "") + " " + (p.sender_phone || ""))) return;
                 try {
                   const r = await flashApi.notifyCourier({ name: p.sender_name, phone: p.sender_phone, province: p.sender_province, city: p.sender_district, postal: p.sender_postal, address: p.sender_address }, getFlashAccount(p));
-                  if (r.code === 1 && r.data) alert("✅ เรียกพนักงานสำเร็จ\nพนักงาน: " + (r.data.staffInfoName || "-") + "\nโทร: " + (r.data.staffInfoPhone || "-") + "\nเวลา: " + (r.data.timeoutAtText || "-") + (r.data.ticketMessage ? "\n\n" + r.data.ticketMessage : ""));
-                  else alert("❌ " + (r.message || "เรียกพนักงานไม่สำเร็จ"));
-                } catch (e) { alert("❌ " + e.message); }
+                  if (r.code === 1 && r.data) uiAlert("✅ เรียกพนักงานสำเร็จ\nพนักงาน: " + (r.data.staffInfoName || "-") + "\nโทร: " + (r.data.staffInfoPhone || "-") + "\nเวลา: " + (r.data.timeoutAtText || "-") + (r.data.ticketMessage ? "\n\n" + r.data.ticketMessage : ""));
+                  else uiAlert("❌ " + (r.message || "เรียกพนักงานไม่สำเร็จ"));
+                } catch (e) { uiAlert("❌ " + e.message); }
               }} style={{ padding: "7px 12px", background: "#ea580c", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🛵 เรียกพนักงานเข้ารับ</button>
               <button onClick={() => setPrintPreview(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer" }}>✕</button>
             </div>
@@ -3608,7 +3628,7 @@ export default function FlashBackend() {
           <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
             <button onClick={async () => {
               const toPrint = printPreview.filter(p => p._print !== false);
-              if (!toPrint.length) { alert("เลือกอย่างน้อย 1 รายการ"); return; }
+              if (!toPrint.length) { uiAlert("เลือกอย่างน้อย 1 รายการ"); return; }
               openPrintPage(toPrint);
               for (const p of toPrint) { markPrinted(p); }
               setSelectedIds(new Set());
