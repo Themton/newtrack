@@ -1478,6 +1478,7 @@ export default function FlashBackend() {
 
   // Batch สร้างเลข Tracking
   const [batchProgress, setBatchProgress] = useState(null);
+  const [cancelProgress, setCancelProgress] = useState(null);
   const batchCreateFlash = async () => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && !p.flash_pno && p.receiver_name && p.receiver_phone);
     if (!targets.length) { alert("ไม่มีรายการที่เลือก (ต้องยังไม่มีเลข Tracking + มีข้อมูลผู้รับ)"); return; }
@@ -1525,7 +1526,7 @@ export default function FlashBackend() {
 
   const selectedCounts = useMemo(() => {
     const sel = parcels.filter(p => selectedIds.has(p.id));
-    return { total: sel.length, noTracking: sel.filter(p => !p.flash_pno).length, hasTracking: sel.filter(p => p.flash_pno).length, canMarkPrinted: sel.filter(p => p.flash_pno && p.status === "created").length };
+    return { total: sel.length, noTracking: sel.filter(p => !p.flash_pno).length, hasTracking: sel.filter(p => p.flash_pno).length, canMarkPrinted: sel.filter(p => p.flash_pno && p.status === "created").length, canCancel: sel.filter(p => p.flash_pno && p.status !== "cancelled").length };
   }, [parcels, selectedIds]);
 
   // ═══ SHARED PRINT PAGE — CRM2 style (SVG barcode + QR local + jsPDF) ═══
@@ -1698,6 +1699,42 @@ export default function FlashBackend() {
     const targets = parcels.filter(p => selectedIds.has(p.id) && p.flash_pno);
     if (!targets.length) { alert("ไม่มีรายการที่มีเลข Tracking ให้ปริ้น"); return; }
     setPrintPreview(targets.map(p => ({ ...p })));
+  };
+
+  const batchCancelFlash = async () => {
+    const targets = parcels.filter(p => selectedIds.has(p.id) && p.flash_pno && p.status !== "cancelled");
+    if (!targets.length) { alert("ไม่มีรายการที่ยกเลิกได้\n(ต้องมีเลข Tracking และยังไม่ถูกยกเลิก)"); return; }
+    if (!confirm(`ยกเลิก ${targets.length} เลขพัสดุ?\n\n⚠️ จะยกเลิกจากระบบ Flash Express ด้วย\n(ยกเลิกได้เฉพาะพัสดุที่ยังไม่ถูกรับเข้าระบบ)`)) return;
+    mutating.current = true;
+    let ok = 0; const failList = []; let done = 0;
+    setCancelProgress({ done: 0, total: targets.length });
+    const CONC = 5;
+    for (let i = 0; i < targets.length; i += CONC) {
+      const slice = targets.slice(i, i + CONC);
+      await Promise.all(slice.map(async (p) => {
+        try {
+          const result = await flashApi.cancelOrder(p.flash_pno, getFlashAccount(p));
+          if (result.code === 1 || result.code === 1032) {
+            if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" });
+            setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x));
+            ok++;
+          } else { failList.push(p.flash_pno); }
+        } catch { failList.push(p.flash_pno); }
+        done++; setCancelProgress({ done, total: targets.length });
+      }));
+    }
+    setCancelProgress(null);
+    setSelectedIds(new Set());
+    try { await sb.broadcastChange(); } catch {}
+    setTimeout(() => { mutating.current = false; }, 1500);
+    if (failList.length && confirm(`ยกเลิกฝั่ง Flash สำเร็จ ${ok} ใบ\nไม่สำเร็จ ${failList.length} ใบ (อาจถูกรับเข้าระบบแล้ว)\n\nต้องการทำเครื่องหมาย "ยกเลิก" ให้ ${failList.length} ใบที่เหลือเฉพาะในระบบหลังบ้านไหม?`)) {
+      const fails = parcels.filter(p => failList.includes(p.flash_pno));
+      for (const p of fails) { try { if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" }); setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x)); } catch {} }
+      try { await sb.broadcastChange(); } catch {}
+      showToast(`ยกเลิกในระบบแล้ว ${fails.length} ใบ`);
+    } else {
+      showToast(`ยกเลิกสำเร็จ ${ok} ใบ` + (failList.length ? ` (พลาด ${failList.length})` : ""));
+    }
   };
 
   const batchDelete = async () => {
@@ -3375,8 +3412,10 @@ export default function FlashBackend() {
                     <button onClick={batchPrint} style={{ padding: "7px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🖨️ ปริ้น ({selectedCounts.hasTracking})</button>
                     <button onClick={batchMarkPrinted} style={{ padding: "7px 16px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🖨️ เปลี่ยนเป็นปริ้นแล้ว ({selectedCounts.canMarkPrinted})</button>
                     {perm.delete && <button onClick={batchDelete} style={{ padding: "7px 16px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🗑️ ลบ ({selectedIds.size})</button>}
+                    {perm.cancelFlash && <button onClick={batchCancelFlash} disabled={!!cancelProgress} style={{ padding: "7px 16px", background: "#b91c1c", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: cancelProgress ? "wait" : "pointer", opacity: cancelProgress ? 0.6 : 1 }}>❌ ยกเลิกที่เลือก ({selectedCounts.canCancel})</button>}
                     <button onClick={() => setSelectedIds(new Set())} style={{ padding: "7px 14px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>✕ ยกเลิก</button>
                     {batchProgress && <div style={{ flex: 1, minWidth: 150 }}><div style={{ fontSize: 11, color: "#6366f1", marginBottom: 3 }}>กำลังสร้าง... {batchProgress.done}/{batchProgress.total}</div><div style={{ width: "100%", height: 6, background: "#e2e8f0", borderRadius: 3 }}><div style={{ width: `${(batchProgress.done / batchProgress.total) * 100}%`, height: "100%", background: "#6366f1", borderRadius: 3, transition: ".3s" }} /></div></div>}
+                    {cancelProgress && <div style={{ flex: 1, minWidth: 150 }}><div style={{ fontSize: 11, color: "#dc2626", marginBottom: 3 }}>กำลังยกเลิก... {cancelProgress.done}/{cancelProgress.total}</div><div style={{ width: "100%", height: 6, background: "#fee2e2", borderRadius: 3 }}><div style={{ width: `${(cancelProgress.done / cancelProgress.total) * 100}%`, height: "100%", background: "#dc2626", borderRadius: 3, transition: ".3s" }} /></div></div>}
                   </div>
                 )}
                 {loading ? <div style={{ padding: 60, textAlign: "center", color: "#94a3b8" }}>⏳ กำลังโหลด...</div> : !paged.length ? <div style={{ padding: 60, textAlign: "center", color: "#94a3b8" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 8 }}>ไม่พบพัสดุ</div></div> : (
