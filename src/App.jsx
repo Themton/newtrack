@@ -1651,13 +1651,13 @@ export default function FlashBackend() {
     html += `.bc-wrap svg{width:92%;height:45px}`;
     html += `.pno-row{font-size:12px;font-weight:900;text-align:center;letter-spacing:1.5px;padding:2px 0;border-bottom:1.5px solid #000;background:#f8f8f8}`;
     html += `.dst-bar{background:#333;color:#fff;padding:2px 8px;font-size:8px;font-weight:700;letter-spacing:1px}`;
-    html += `.body-area{padding:4px 8px 2px;border-bottom:1px solid #000;min-height:126px;position:relative}`;
+    html += `.body-area{padding:4px 8px 2px;border-bottom:1px solid #000;min-height:98px;position:relative}`;
     html += `.src-line{font-size:7.5px;color:#555;line-height:1.4;margin-bottom:2px}`;
     html += `.dst-name{font-size:10px;font-weight:800;margin-top:2px}`;
     html += `.dst-phone{font-size:12px;font-weight:900;letter-spacing:0.5px}`;
     html += `.dst-addr{font-size:8.5px;font-weight:700;line-height:1.3}`;
-    html += `.qr-box{position:absolute;right:4px;top:36px;text-align:center}`;
-    html += `.qr-box canvas{width:85px;height:85px}`;
+    html += `.qr-box{position:absolute;right:4px;top:28px;text-align:center}`;
+    html += `.qr-box canvas{width:62px;height:62px}`;
     html += `.cod-row{border-bottom:1px solid #000;display:flex;align-items:stretch;min-height:22px}`;
     html += `.cod-tag{background:#000;color:#fff;font-size:11px;font-weight:900;padding:3px 8px;display:flex;align-items:center}`;
     html += `.cod-val{flex:1;font-size:15px;font-weight:900;padding:2px 8px;display:flex;align-items:center}`;
@@ -1707,7 +1707,7 @@ export default function FlashBackend() {
         html += `<div class="cod-val" style="font-size:10px;color:#666">—</div>`;
       }
       html += `</div>`;
-      html += `<div class="dst-item" style="font-size:18px;color:#000;font-weight:800;padding:5px 0 2px">📦 สินค้า: ${p.remark || "-"}</div>`;
+      html += `<div class="dst-item" style="font-size:15px;color:#000;font-weight:800;padding:2px 8px;line-height:1.2">📦 สินค้า: ${p.remark || "-"}</div>`;
       html += `<div class="foot"><span>Print-: ${now}</span><span>${idx + 1}/${total}</span><span>THE MT</span></div>`;
       html += `</div>`;
     });
