@@ -4,4 +4,4 @@ compatibility_date = "2024-11-01"
 
 # auto-sync สถานะ Flash ทุก 30 นาที (ปรับได้ตามต้องการ)
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/10 * * * *"]
