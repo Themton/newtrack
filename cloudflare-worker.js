@@ -223,9 +223,26 @@ export default {
     if (url.pathname === "/flash-api/tracking" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
       const mchId = body.mchId || DEFAULT_MCH;
-      const pnos = body.pnos || "";
-      if (!pnos) return json({ code: -1, message: "pnos required" });
-      return json(await callFlash("/open/v1/orders/routesBatch", { pnos }, mchId));
+      const pnos = String(body.pnos || "").split(",").map(s => s.trim()).filter(Boolean);
+      if (!pnos.length) return json({ code: -1, message: "pnos required" });
+      const data = [];
+      for (const pno of pnos) {
+        try {
+          const r = await getTracking(pno, mchId);
+          if (r && r.code === 1 && r.data) {
+            const d = r.data;
+            const lr = d.routes && d.routes[0];
+            data.push({
+              pno,
+              state: d.state,
+              stateText: d.stateText || stateText(d.state),
+              stateChangeAt: (lr && lr.routedAt) ? lr.routedAt : 0,
+              routes: d.routes || [],
+            });
+          }
+        } catch {}
+      }
+      return json({ code: 1, data });
     }
     // เรียกพนักงานเข้ารับพัสดุ (notify courier)
     if (url.pathname === "/flash-api/notify" && req.method === "POST") {
