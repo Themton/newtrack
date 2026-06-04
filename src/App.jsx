@@ -1625,7 +1625,7 @@ export default function FlashBackend() {
         raddr2: `${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}`,
         raddr3: `${p.receiver_province || ""} ${p.receiver_postal || ""}`.trim(),
         cod: (p.cod_enabled && Number(p.cod_amount) > 0) ? Number(p.cod_amount) : 0,
-        item: p.item_desc || "",
+        item: p.remark || "",
       };
     });
 
@@ -1698,7 +1698,7 @@ export default function FlashBackend() {
       html += `<div class="dst-name">ผู้รับ ${p.receiver_name}</div>`;
       html += `<div class="dst-phone">${maskPhone(p.receiver_phone)}</div>`;
       html += `<div class="dst-addr">${p.receiver_address || ""}<br>${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}<br>${p.receiver_province || ""} ${p.receiver_postal || ""}</div>`;
-      html += `<div class="dst-item" style="font-size:12px;color:#222;margin-top:3px;font-weight:700">📦 สินค้า: ${p.item_desc || "-"}</div>`;
+      html += `<div class="dst-item" style="font-size:12px;color:#222;margin-top:3px;font-weight:700">📦 สินค้า: ${p.remark || "-"}</div>`;
       html += `<div class="qr-box"><canvas id="qr${idx}" width="170" height="170"></canvas></div>`;
       html += `</div>`;
       html += `<div class="cod-row">`;
@@ -1708,7 +1708,6 @@ export default function FlashBackend() {
         html += `<div class="cod-val" style="font-size:10px;color:#666">—</div>`;
       }
       html += `</div>`;
-      if (p.remark) html += `<div class="note-row"><b>Note:</b> ${p.remark}</div>`;
       html += `<div class="foot"><span>Print-: ${now}</span><span>${idx + 1}/${total}</span><span>THE MT</span></div>`;
       html += `</div>`;
     });
