@@ -2780,6 +2780,7 @@ export default function FlashBackend() {
 
   // ═══ DASHBOARD PAGE ═══
   const DashboardPage = () => {
+    const [prodPeriod, setProdPeriod] = useState("today");
     const today = new Date().toISOString().slice(0, 10);
     const todayParcels = parcels.filter(p => p.created_at?.slice(0, 10) === today);
     const todayStats = {
@@ -3033,32 +3034,61 @@ export default function FlashBackend() {
             s = s.replace(/[0-9]+\s*$/, "").trim();
             return s || "(ไม่ระบุ)";
           };
+          const now2 = new Date();
+          const inPeriod = (p) => {
+            if (prodPeriod === "all") return true;
+            const d = new Date(p.created_at);
+            if (prodPeriod === "today") return p.created_at?.slice(0, 10) === today;
+            if (prodPeriod === "7days") { const s = new Date(now2); s.setDate(s.getDate() - 6); s.setHours(0, 0, 0, 0); return d >= s; }
+            if (prodPeriod === "month") { const s = new Date(now2.getFullYear(), now2.getMonth(), 1); return d >= s; }
+            return true;
+          };
           const byType = {};
           for (const p of parcels) {
-            if (p.status === "cancelled") continue;
+            if (p.status === "cancelled" || !inPeriod(p)) continue;
             const t = productType(p.remark);
-            if (!byType[t]) byType[t] = { count: 0, cod: 0 };
+            if (!byType[t]) byType[t] = { count: 0, cod: 0, sales: 0 };
             byType[t].count++;
             if (p.cod_enabled) byType[t].cod += Number(p.cod_amount || 0);
+            byType[t].sales += Number(p.sale_price || 0);
           }
-          const rows = Object.entries(byType).sort((a, b) => b[1].count - a[1].count);
-          if (rows.length === 0) return null;
+          const allRows = Object.entries(byType).sort((a, b) => b[1].count - a[1].count);
+          const rows = allRows.slice(0, 5);
           const max = Math.max(1, ...rows.map(r => r[1].count));
+          const periods = [["today", "วันนี้"], ["7days", "7 วัน"], ["month", "เดือนนี้"], ["all", "ทั้งหมด"]];
           return (
             <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "20px 24px", marginTop: 20 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 14 }}>📦 สรุปสินค้า <span style={{ fontWeight: 400, fontSize: 12, color: "#9ca3af" }}>(จาก Note)</span></div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {rows.map(([t, s], i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 120, fontSize: 13, fontWeight: 700, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t}</div>
-                    <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 22, overflow: "hidden" }}>
-                      <div style={{ width: `${(s.count / max) * 100}%`, height: "100%", background: "#6366f1", borderRadius: 6 }} />
-                    </div>
-                    <div style={{ width: 50, fontSize: 14, fontWeight: 800, color: "#4f46e5", textAlign: "right" }}>{s.count}</div>
-                    <div style={{ width: 92, fontSize: 12, color: "#c2410c", textAlign: "right" }}>฿{s.cod.toLocaleString()}</div>
-                  </div>
-                ))}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>📦 สินค้าขายดี <span style={{ fontWeight: 400, fontSize: 12, color: "#9ca3af" }}>Top 5 (จาก Note)</span></div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {periods.map(([k, l]) => (
+                    <button key={k} onClick={() => setProdPeriod(k)} style={{ padding: "5px 12px", borderRadius: 8, border: prodPeriod === k ? "none" : "1px solid #e2e8f0", background: prodPeriod === k ? "#4f46e5" : "#fff", color: prodPeriod === k ? "#fff" : "#475569", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{l}</button>
+                  ))}
+                </div>
               </div>
+              {rows.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>ไม่มีข้อมูลในช่วงนี้</div>}
+              {rows.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "#9ca3af", fontWeight: 700 }}>
+                    <div style={{ width: 120 }}>สินค้า</div><div style={{ flex: 1 }}></div>
+                    <div style={{ width: 44, textAlign: "right" }}>จำนวน</div>
+                    <div style={{ width: 92, textAlign: "right" }}>ยอดขาย</div>
+                    <div style={{ width: 92, textAlign: "right" }}>COD</div>
+                  </div>
+                  {rows.map(([t, s], i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 120, fontSize: 13, fontWeight: 700, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{i + 1}. {t}</div>
+                      <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 20, overflow: "hidden" }}>
+                        <div style={{ width: `${(s.count / max) * 100}%`, height: "100%", background: "#6366f1", borderRadius: 6 }} />
+                      </div>
+                      <div style={{ width: 44, fontSize: 14, fontWeight: 800, color: "#4f46e5", textAlign: "right" }}>{s.count}</div>
+                      <div style={{ width: 92, fontSize: 12, color: "#15803d", fontWeight: 700, textAlign: "right" }}>฿{s.sales.toLocaleString()}</div>
+                      <div style={{ width: 92, fontSize: 12, color: "#c2410c", textAlign: "right" }}>฿{s.cod.toLocaleString()}</div>
+                    </div>
+                  ))}
+                  {allRows.length > 5 && <div style={{ fontSize: 11, color: "#cbd5e1", textAlign: "center", marginTop: 4 }}>+ อีก {allRows.length - 5} ประเภท (ดูทั้งหมดในหน้าสรุปรายงาน)</div>}
+                </div>
+              )}
             </div>
           );
         })()}
