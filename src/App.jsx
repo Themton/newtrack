@@ -1145,7 +1145,7 @@ function PublicTracking() {
   const sColor = (fs, st) => {
     if (st === "cancelled") return { bg: "#fee2e2", color: "#991b1b", txt: "ยกเลิก" };
     if (!fs || fs === "สร้างรายการ") return { bg: "#fef3c7", color: "#92400e", txt: "กำลังเตรียมพัสดุ" };
-    if (fs.includes("เซ็นรับ") || fs.includes("สำเร็จ")) return { bg: "#d1fae5", color: "#065f46", txt: fs };
+    if (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ")) return { bg: "#d1fae5", color: "#065f46", txt: fs };
     if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ตีกลับ") || fs.includes("ส่งกลับ")) return { bg: "#fee2e2", color: "#991b1b", txt: fs };
     if (fs.includes("ขนส่ง")) return { bg: "#ede9fe", color: "#6d28d9", txt: fs };
     return { bg: "#e0f2fe", color: "#0369a1", txt: fs };
@@ -1861,9 +1861,9 @@ export default function FlashBackend() {
 
     const getStatusColor = (fs) => {
       if (!fs || fs === "สร้างรายการ") return { bg: "#fef3c7", color: "#92400e" };
-      if (fs.includes("เซ็นรับ") || fs.includes("สำเร็จ")) return { bg: "#d1fae5", color: "#065f46" };
+      if (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ")) return { bg: "#d1fae5", color: "#065f46" };
+      if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ตีกลับ") || fs.includes("ส่งกลับ")) return { bg: "#fee2e2", color: "#991b1b" };
       if (fs.includes("ขนส่ง")) return { bg: "#ede9fe", color: "#6d28d9" };
-      if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ส่งกลับ")) return { bg: "#fee2e2", color: "#991b1b" };
       return { bg: "#e0f2fe", color: "#0369a1" };
     };
 
