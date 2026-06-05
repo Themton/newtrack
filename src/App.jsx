@@ -1206,6 +1206,8 @@ export default function FlashBackend() {
   const [shops, setShops] = useState([]);
   const [page, setPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [assignModal, setAssignModal] = useState(false);
+  const [assignName, setAssignName] = useState("");
   const [activePage, setActivePageRaw] = useState(() => {
     try { return sessionStorage.getItem("fx_page") || "dashboard"; } catch { return "dashboard"; }
   });
@@ -1596,6 +1598,18 @@ export default function FlashBackend() {
 
   const toggleSelect = (id) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleSelectAll = () => { const ids = paged.map(p => p.id); const allSel = ids.every(id => selectedIds.has(id)); setSelectedIds(prev => { const n = new Set(prev); ids.forEach(id => allSel ? n.delete(id) : n.add(id)); return n; }); };
+  const batchAssignSale = async () => {
+    const name = assignName.trim();
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    for (const id of ids) {
+      setParcels(prev => prev.map(x => x.id === id ? { ...x, sale_person: name } : x));
+      try { if (!isDemo) await sb.update("fx_parcels", id, { sale_person: name }); } catch {}
+    }
+    logActivity("โยกพนักงานขาย", `${ids.length} ใบ → ${name || "(ไม่ระบุ)"}`);
+    setAssignModal(false); setAssignName(""); setSelectedIds(new Set());
+    showToast(`โยก ${ids.length} ใบ ให้ ${name || "(ไม่ระบุ)"} แล้ว`);
+  };
 
   const selectedCounts = useMemo(() => {
     const sel = parcels.filter(p => selectedIds.has(p.id));
@@ -3907,6 +3921,7 @@ export default function FlashBackend() {
                     <button onClick={batchCreateFlash} disabled={!!batchProgress} style={{ padding: "7px 16px", background: "#f59e0b", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>⚡ สร้างเลข Tracking ({selectedCounts.noTracking})</button>
                     <button onClick={batchPrint} style={{ padding: "7px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🖨️ ปริ้น ({selectedCounts.hasTracking})</button>
                     <button onClick={batchMarkPrinted} style={{ padding: "7px 16px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🖨️ เปลี่ยนเป็นปริ้นแล้ว ({selectedCounts.canMarkPrinted})</button>
+                    {perm.edit && <button onClick={() => { setAssignName(""); setAssignModal(true); }} style={{ padding: "7px 16px", background: "#0ea5e9", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>👤 โยกให้พนักงาน</button>}
                     {perm.delete && <button onClick={batchDelete} style={{ padding: "7px 16px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🗑️ ลบ ({selectedIds.size})</button>}
                     {perm.cancelFlash && <button onClick={batchCancelFlash} disabled={!!cancelProgress} style={{ padding: "7px 16px", background: "#b91c1c", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: cancelProgress ? "wait" : "pointer", opacity: cancelProgress ? 0.6 : 1 }}>❌ ยกเลิกที่เลือก ({selectedCounts.canCancel})</button>}
                     <button onClick={() => setSelectedIds(new Set())} style={{ padding: "7px 14px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>✕ ยกเลิก</button>
@@ -3989,6 +4004,22 @@ export default function FlashBackend() {
           {activePage === "users" && <div style={{ padding: 24 }}><UserManagement onClose={() => {}} isDemo={isDemo} inline /></div>}
         </div>
       </div>
+
+      {/* MODAL โยกออเดอร์ให้พนักงาน */}
+      {assignModal && (
+        <div onClick={() => setAssignModal(false)} style={{ position: "fixed", inset: 0, zIndex: 99000, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 380 }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 800 }}>👤 โยกให้พนักงานขาย</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 13, color: "#64748b" }}>โยก <b>{selectedIds.size}</b> รายการที่เลือก ให้พนักงาน</p>
+            <input list="assignSaleList" value={assignName} onChange={e => setAssignName(e.target.value)} onKeyDown={e => e.key === "Enter" && batchAssignSale()} placeholder="เลือกหรือพิมพ์ชื่อพนักงาน" autoFocus style={{ width: "100%", padding: "11px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 14, boxSizing: "border-box", fontFamily: "inherit", outline: "none" }} />
+            <datalist id="assignSaleList">{[...new Set(parcels.map(p => (p.sale_person || "").trim()).filter(Boolean))].sort().map(s => <option key={s} value={s} />)}</datalist>
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button onClick={() => setAssignModal(false)} style={{ flex: 1, padding: "11px", background: "#f1f5f9", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#475569" }}>ยกเลิก</button>
+              <button onClick={batchAssignSale} style={{ flex: 1, padding: "11px", background: "#0ea5e9", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>✓ ยืนยันโยก</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CUSTOM DIALOG (แทน confirm/alert ของเบราว์เซอร์) */}
       {uiDlg && (
