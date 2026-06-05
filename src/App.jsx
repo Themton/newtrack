@@ -2171,6 +2171,24 @@ export default function FlashBackend() {
       if (p.cod_enabled) byShop[sid].cod += Number(p.cod_amount || 0);
     }
 
+    // แยกตามประเภทสินค้า (ดึงจาก remark: ตัด "ปลายทาง..." + เลขท้ายออก → ชื่อสินค้า)
+    const productType = (remark) => {
+      if (!remark) return "(ไม่ระบุ)";
+      let s = String(remark).split("ปลายทาง")[0].trim();
+      s = s.replace(/[0-9]+\s*$/, "").trim();
+      return s || "(ไม่ระบุ)";
+    };
+    const byType = {};
+    for (const p of data) {
+      const t = productType(p.remark);
+      if (!byType[t]) byType[t] = { total: 0, delivered: 0, returned: 0, cod: 0, codDelivered: 0 };
+      byType[t].total++;
+      if (matchSt(p.flash_status, "delivered")) { byType[t].delivered++; if (p.cod_enabled) byType[t].codDelivered += Number(p.cod_amount || 0); }
+      if (matchSt(p.flash_status, "returned")) byType[t].returned++;
+      if (p.cod_enabled) byType[t].cod += Number(p.cod_amount || 0);
+    }
+    const typeRows = Object.entries(byType).sort((a, b) => b[1].total - a[1].total);
+
     // แยกตามวัน (สำหรับ 7 วัน/เดือน)
     const byDay = {};
     for (const p of data) {
@@ -2245,6 +2263,29 @@ export default function FlashBackend() {
                 </tr>
               );
             })}</tbody>
+          </table>
+        </div>
+
+        {/* ตารางแยกตามประเภทสินค้า (จาก Note) */}
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e5e7eb", overflow: "hidden", marginBottom: 24 }}>
+          <div style={{ padding: "14px 20px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb", fontWeight: 800, fontSize: 15 }}>📦 แยกตามประเภทสินค้า <span style={{ fontWeight: 400, fontSize: 12, color: "#9ca3af" }}>(ดึงจาก Note)</span></div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead><tr style={{ background: "#f9fafb" }}>
+              {["ประเภทสินค้า", "จำนวน", "สำเร็จ", "ตีกลับ", "อัตราสำเร็จ", "COD", "COD เก็บแล้ว"].map(h => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#6b7280", fontSize: 12 }}>{h}</th>)}
+            </tr></thead>
+            <tbody>{typeRows.map(([t, s]) => (
+              <tr key={t} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                <td style={{ padding: "10px 14px", fontWeight: 700 }}>{t}</td>
+                <td style={{ padding: "10px 14px", fontWeight: 700 }}>{s.total}</td>
+                <td style={{ padding: "10px 14px", color: "#059669", fontWeight: 700 }}>{s.delivered}</td>
+                <td style={{ padding: "10px 14px", color: "#dc2626", fontWeight: 700 }}>{s.returned}</td>
+                <td style={{ padding: "10px 14px", fontWeight: 700 }}>{s.total > 0 ? ((s.delivered / s.total) * 100).toFixed(1) : 0}%</td>
+                <td style={{ padding: "10px 14px", color: "#c2410c" }}>฿{s.cod.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", color: "#15803d", fontWeight: 700 }}>฿{s.codDelivered.toLocaleString()}</td>
+              </tr>
+            ))}
+            {typeRows.length === 0 && <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>ไม่มีข้อมูล</td></tr>}
+            </tbody>
           </table>
         </div>
 
