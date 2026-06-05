@@ -2142,7 +2142,7 @@ export default function FlashBackend() {
       if (key === "transit") return fs.includes("ขนส่ง") && !fs.includes("ไม่สำเร็จ") && !fs.includes("คืน");
       if (key === "delivered") return fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ");
       if (key === "returned") return fs.includes("คืน") || fs.includes("ส่งกลับ") || fs.includes("ไม่สำเร็จ") || fs.includes("ตีกลับ");
-      if (key === "delivering") return fs.includes("กำลังจัดส่ง") || fs.includes("นำจ่าย");
+      if (key === "delivering") return fs.includes("กำลังจัดส่ง") || fs.includes("นำจ่าย") || fs.includes("ระหว่างการจัดส่ง");
       if (key === "pickup") return fs.includes("รับพัสดุ") || fs.includes("รับสินค้า");
       return false;
     };
@@ -2547,7 +2547,7 @@ export default function FlashBackend() {
       if (!fs) return false;
       if (key === "ขนส่ง") return fs.includes("ขนส่ง") && !fs.includes("ไม่สำเร็จ") && !fs.includes("คืน");
       if (key === "รับพัสดุแล้ว") return fs.includes("รับพัสดุ") || fs.includes("รับสินค้า");
-      if (key === "กำลังจัดส่ง") return fs.includes("กำลังจัดส่ง") || fs.includes("นำจ่าย") || fs.includes("รอการนำส่ง");
+      if (key === "กำลังจัดส่ง") return fs.includes("กำลังจัดส่ง") || fs.includes("นำจ่าย") || fs.includes("รอการนำส่ง") || fs.includes("ระหว่างการจัดส่ง");
       if (key === "เซ็นรับแล้ว") return fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ");
       if (key === "นำส่งไม่สำเร็จ") return fs.includes("ไม่สำเร็จ");
       if (key === "ส่งคืน") return (fs.includes("ส่งคืน") || fs.includes("ส่งกลับ")) && !fs.includes("สำเร็จ");
@@ -3835,7 +3835,15 @@ export default function FlashBackend() {
                           <td style={{ padding: "8px 10px", fontFamily: "monospace", fontSize: 12 }}>{p.receiver_phone}</td>
                           <td style={{ padding: "8px 10px", fontSize: 11, color: "#475569", maxWidth: 240, lineHeight: 1.35, whiteSpace: "normal" }} title={`${p.receiver_address || ""} ${p.receiver_subdistrict || ""} ${p.receiver_district || ""} ${p.receiver_province || ""} ${p.receiver_postal || ""}`.replace(/\s+/g, " ").trim()}>{`${p.receiver_address || ""} ${p.receiver_subdistrict || ""} ${p.receiver_district || ""} ${p.receiver_province || ""} ${p.receiver_postal || ""}`.replace(/\s+/g, " ").trim() || "—"}</td>
                           <td style={{ padding: "8px 10px" }}><span style={{ padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600, background: p.status === "printed" ? "#eef2ff" : p.status === "created" ? "#ecfdf5" : p.status === "cancelled" ? "#fef2f2" : "#fef3c7", color: p.status === "printed" ? "#6366f1" : p.status === "created" ? "#059669" : p.status === "cancelled" ? "#dc2626" : "#f59e0b" }}>{p.status === "printed" ? "🖨️ ปริ้นแล้ว" : p.status === "created" ? "✅ สร้างเลขแล้ว" : p.status === "cancelled" ? "❌ ยกเลิก" : "📝 เตรียมส่ง"}</span></td>
-                          <td style={{ padding: "8px 10px" }}>{p.flash_status ? <span title={p.flash_detail || ""} style={{ padding: "3px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "help", background: p.flash_status === "เซ็นรับแล้ว" ? "#dcfce7" : p.flash_status === "ส่งคืน" || p.flash_status === "คืนสำเร็จ" ? "#fee2e2" : p.flash_status === "ในระบบขนส่ง" || p.flash_status === "กำลังจัดส่ง" ? "#dbeafe" : p.flash_status === "รับพัสดุแล้ว" ? "#e0f2fe" : "#f3f4f6", color: p.flash_status === "เซ็นรับแล้ว" ? "#166534" : p.flash_status === "ส่งคืน" || p.flash_status === "คืนสำเร็จ" ? "#991b1b" : p.flash_status === "ในระบบขนส่ง" || p.flash_status === "กำลังจัดส่ง" ? "#1e40af" : p.flash_status === "รับพัสดุแล้ว" ? "#0369a1" : "#475569" }}>{p.flash_status}</span> : <span style={{ color: "#d1d5db", fontSize: 11 }}>—</span>}</td>
+                          <td style={{ padding: "8px 10px" }}>{p.flash_status ? (() => {
+                            const fs = p.flash_status;
+                            let bg = "#f3f4f6", color = "#475569";
+                            if (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ")) { bg = "#dcfce7"; color = "#166534"; }
+                            else if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ตีกลับ") || fs.includes("ส่งกลับ")) { bg = "#fee2e2"; color = "#991b1b"; }
+                            else if (fs.includes("ขนส่ง") || fs.includes("จัดส่ง") || fs.includes("นำจ่าย")) { bg = "#dbeafe"; color = "#1e40af"; }
+                            else if (fs.includes("รับพัสดุ")) { bg = "#e0f2fe"; color = "#0369a1"; }
+                            return <span title={p.flash_detail || ""} style={{ padding: "3px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "help", background: bg, color }}>{fs}</span>;
+                          })() : <span style={{ color: "#d1d5db", fontSize: 11 }}>—</span>}</td>
                           <td style={{ padding: "8px 10px" }}>{p.flash_pno ? <span style={{ color: "#0ea5e9", fontWeight: 600, fontSize: 12 }}>{p.flash_pno} {p.flash_sort_code ? "📋" : ""}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
                           {perm.viewCOD && <td style={{ padding: "8px 10px", fontWeight: 700, fontSize: 13 }}>{p.cod_enabled ? <span style={{ color: "#000" }}>{Number(p.cod_amount || 0).toLocaleString()}</span> : ""}</td>}
                           <td style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600 }}>{p.sender_name || "—"}</td>
