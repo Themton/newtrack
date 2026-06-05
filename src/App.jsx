@@ -543,7 +543,7 @@ function parseThaiAddress(raw) {
 // ═══════════════════════════════════════════════════════════════
 // PARCEL FORM — with Shop selector + Address parser
 // ═══════════════════════════════════════════════════════════════
-function ParcelForm({ parcel, user, shops, onSave, onClose }) {
+function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) {
   const isEdit = !!parcel?.id;
   const [form, setForm] = useState(parcel || { sender_name: "", sender_phone: "", sender_address: "", sender_province: "", receiver_name: "", receiver_phone: "", receiver_address: "", receiver_province: "", receiver_district: "", receiver_subdistrict: "", receiver_postal: "", weight: 1, item_desc: "", sale_person: "", sale_price: 0, quantity: 1, cod_enabled: false, cod_amount: 0, remark: "" });
   const [saving, setSaving] = useState(false);
@@ -663,7 +663,11 @@ function ParcelForm({ parcel, user, shops, onSave, onClose }) {
           <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700 }}>📦 พัสดุ</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
             <F label="น้ำหนัก (kg)" k="weight" type="number" /><F label="จำนวน" k="quantity" type="number" /><F label="สินค้า" k="item_desc" ph="สินค้า" />
-            <F label="👤 พนักงานขาย (Sale)" k="sale_person" ph="ชื่อพนักงานขาย" span={3} />
+            <div style={{ gridColumn: "span 3" }}>
+              <label style={L}>👤 พนักงานขาย (Sale)</label>
+              <input list="salePersonList" value={form.sale_person || ""} onChange={e => set("sale_person", e.target.value)} placeholder="เลือกจากรายชื่อ หรือพิมพ์ชื่อใหม่" style={I} />
+              <datalist id="salePersonList">{salePersons.map(s => <option key={s} value={s} />)}</datalist>
+            </div>
             <F label="💵 ราคาขาย (บาท)" k="sale_price" type="number" span={3} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
@@ -4125,7 +4129,7 @@ export default function FlashBackend() {
       </div></div>}
 
       {/* MODALS */}
-      {showForm && <ParcelForm parcel={editParcel} user={user} shops={shops} onClose={() => setShowForm(false)} onSave={() => { setShowForm(false); loadParcels(); }} />}
+      {showForm && <ParcelForm parcel={editParcel} user={user} shops={shops} salePersons={[...new Set(parcels.map(p => (p.sale_person || "").trim()).filter(Boolean))].sort()} onClose={() => setShowForm(false)} onSave={() => { setShowForm(false); loadParcels(); }} />}
     </div>
   );
 }
