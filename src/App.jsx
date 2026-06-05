@@ -500,47 +500,77 @@ function PrintLabel({ parcel, onClose }) {
 // ADDRESS PARSER — วางที่อยู่แล้วจับอัตโนมัติ
 // ═══════════════════════════════════════════════════════════════
 function parseThaiAddress(raw) {
-  const r = { name: "", phone: "", address: "", subdistrict: "", district: "", province: "", postal: "", page: "" };
+  const r = { name: "", phone: "", address: "", subdistrict: "", district: "", province: "", postal: "", page: "", note: "" };
   if (!raw) return r;
   let lines = raw.replace(/\r/g, "").split("\n").map(s => s.trim()).filter(Boolean);
-  // ชื่อเพจ / FB / Line ลูกค้า (บรรทัดที่ขึ้นต้น/มีคำว่า เพจ, FB, Line ฯลฯ)
-  const pageIdx = lines.findIndex(line => /(?:^|\s)(?:เพจ|เฟส|เฟซ|FB|facebook|ไลน์|line|page)\s*[:：\-]?\s*\S/i.test(line));
-  if (pageIdx >= 0) {
-    const m = lines[pageIdx].match(/(?:เพจ|เฟส|เฟซ|FB|facebook|ไลน์|line|page)\s*[:：\-]?\s*(.+)/i);
-    if (m && m[1]) r.page = m[1].trim();
-    lines = lines.filter((_, i) => i !== pageIdx);
+
+  // ── แยกบรรทัดพิเศษ: @สินค้า/หมายเหตุ, FB:, เพจ/P: ──
+  const rest = [];
+  let sellerPage = "";
+  for (const line of lines) {
+    if (/^@/.test(line)) { if (!r.note) r.note = line.replace(/^@\s*/, "").trim(); continue; }
+    let m;
+    if ((m = line.match(/^(?:FB|facebook|เฟส|เฟซ|ไลน์|line)\s*[:：\-]\s*(.+)/i))) { if (!r.page) r.page = m[1].trim(); continue; }
+    if ((m = line.match(/^(?:P|page|เพจ)\s*[:：\-]\s*(.+)/i))) { if (!sellerPage) sellerPage = m[1].trim(); continue; }
+    rest.push(line);
   }
-  const full = lines.join(" ");
-  // Phone
+  if (!r.page && sellerPage) r.page = sellerPage.replace(/\s*โทร\.?[\s\d\-]+$/i, "").trim();
+  const full = rest.join(" ");
+
+  // ── โหมดมีป้ายกำกับ (ชื่อ/ที่อยู่/จังหวัด/อำเภอ/ตำบล/ไปรษณีย์/เบอร์ อัดรวมกัน) ──
+  const LAB = [
+    { keys: ["ชื่อ-สกุล", "ชื่อสกุล", "ชื่อ", "ผู้รับ"], f: "name" },
+    { keys: ["ที่อยู่", "บ้านเลขที่"], f: "address" },
+    { keys: ["ตำบล", "แขวง"], f: "subdistrict" },
+    { keys: ["อำเภอ", "เขต"], f: "district" },
+    { keys: ["จังหวัด"], f: "province" },
+    { keys: ["รหัสไปรษณีย์", "เลขไปรษณีย์", "ไปรษณีย์"], f: "postal" },
+    { keys: ["เบอร์โทรศัพท์", "เบอร์โทร", "โทรศัพท์", "เบอร์", "โทร"], f: "phone" },
+  ];
+  const found = [];
+  for (const lab of LAB) {
+    for (const k of lab.keys) {
+      const idx = full.indexOf(k);
+      if (idx >= 0) { found.push({ f: lab.f, start: idx, vs: idx + k.length }); break; }
+    }
+  }
+  if (found.length >= 3) {
+    found.sort((a, b) => a.start - b.start);
+    for (let i = 0; i < found.length; i++) {
+      const end = i + 1 < found.length ? found[i + 1].start : full.length;
+      let v = full.slice(found[i].vs, end).replace(/^[:：\-\s,()]+|[\s,()]+$/g, "").trim();
+      if (found[i].f === "phone") { const pm = v.match(/\d[\d\-\s]{7,}/); v = pm ? pm[0].replace(/[^\d]/g, "") : ""; }
+      else if (found[i].f === "postal") { const pm = v.match(/\d{5}/); v = pm ? pm[0] : ""; }
+      if (v) r[found[i].f] = v;
+    }
+    if (r.postal && ADDR_DB[r.postal]?.length) {
+      const a = ADDR_DB[r.postal][0];
+      if (!r.province) r.province = a.p;
+      if (!r.district) r.district = a.d;
+      if (!r.subdistrict) r.subdistrict = a.s;
+    }
+    return r;
+  }
+
+  // ── โหมดทั่วไป (เดิม) ──
   const phoneMatch = full.match(/(\d[\d-]{8,})/);
   if (phoneMatch) r.phone = phoneMatch[1].replace(/-/g, "");
-  // Postal → auto-fill from ADDR_DB
   const postalMatch = full.match(/\b(\d{5})\b/);
   if (postalMatch) {
     r.postal = postalMatch[1];
     const addrList = ADDR_DB[r.postal];
-    if (addrList?.length) {
-      r.province = addrList[0].p;
-      r.district = addrList[0].d;
-      r.subdistrict = addrList[0].s;
-    }
+    if (addrList?.length) { r.province = addrList[0].p; r.district = addrList[0].d; r.subdistrict = addrList[0].s; }
   }
-  // Province
   const provMatch = full.match(/(จ\.|จังหวัด)\s*([ก-๙]+)/);
   if (provMatch) r.province = provMatch[2];
   else { for (const p of PROVINCES) { if (full.includes(p)) { r.province = p; break; } } }
-  // District
   const distMatch = full.match(/(อ\.|อำเภอ|เขต)\s*([ก-๙]+)/);
   if (distMatch) r.district = distMatch[2];
-  // Subdistrict
   const subMatch = full.match(/(ต\.|ตำบล|แขวง)\s*([ก-๙]+)/);
   if (subMatch) r.subdistrict = subMatch[2];
-  // Name — first line or text before phone/address
-  if (lines.length >= 2) r.name = lines[0].replace(/(\d[\d-]{8,})/, "").trim();
+  if (rest.length >= 2) r.name = rest[0].replace(/(\d[\d-]{8,})/, "").trim();
   else r.name = full.split(/\d{3}/)[0]?.trim() || "";
-  // Remove phone from name
   if (r.phone && r.name.includes(r.phone)) r.name = r.name.replace(r.phone, "").trim();
-  // Address — everything else
   let addr = full;
   [r.name, r.phone, `จ.${r.province}`, `จังหวัด${r.province}`, r.province, `อ.${r.district}`, `อำเภอ${r.district}`, `เขต${r.district}`, `ต.${r.subdistrict}`, `ตำบล${r.subdistrict}`, `แขวง${r.subdistrict}`, r.postal].forEach(v => { if (v) addr = addr.replace(v, ""); });
   r.address = addr.replace(/\s+/g, " ").replace(/^[\s,]+|[\s,]+$/g, "").trim();
@@ -582,6 +612,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
       receiver_province: parsed.province || f.receiver_province,
       receiver_postal: parsed.postal || f.receiver_postal,
       customer_fb_line: parsed.page || f.customer_fb_line,
+      remark: parsed.note || f.remark,
     }));
     setPasteMode(false);
     setRawAddr("");
