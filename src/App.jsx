@@ -545,7 +545,7 @@ function parseThaiAddress(raw) {
 // ═══════════════════════════════════════════════════════════════
 function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) {
   const isEdit = !!parcel?.id;
-  const [form, setForm] = useState(parcel || { sender_name: "", sender_phone: "", sender_address: "", sender_province: "", receiver_name: "", receiver_phone: "", receiver_address: "", receiver_province: "", receiver_district: "", receiver_subdistrict: "", receiver_postal: "", weight: 1, item_desc: "", sale_person: "", sale_price: 0, quantity: 1, cod_enabled: false, cod_amount: 0, remark: "" });
+  const [form, setForm] = useState(parcel || { sender_name: "", sender_phone: "", sender_address: "", sender_province: "", receiver_name: "", receiver_phone: "", receiver_address: "", receiver_province: "", receiver_district: "", receiver_subdistrict: "", receiver_postal: "", weight: 1, item_desc: "", sale_person: "", sale_price: 0, customer_fb_line: "", quantity: 1, cod_enabled: false, cod_amount: 0, remark: "" });
   const [saving, setSaving] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [rawAddr, setRawAddr] = useState("");
@@ -669,6 +669,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
               <datalist id="salePersonList">{salePersons.map(s => <option key={s} value={s} />)}</datalist>
             </div>
             <F label="💵 ราคาขาย (บาท)" k="sale_price" type="number" span={3} />
+            <F label="📱 FB / Line ลูกค้า" k="customer_fb_line" ph="ชื่อ FB หรือ Line ของลูกค้า" span={3} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>💰 COD</h3>
