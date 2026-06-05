@@ -500,9 +500,16 @@ function PrintLabel({ parcel, onClose }) {
 // ADDRESS PARSER — วางที่อยู่แล้วจับอัตโนมัติ
 // ═══════════════════════════════════════════════════════════════
 function parseThaiAddress(raw) {
-  const r = { name: "", phone: "", address: "", subdistrict: "", district: "", province: "", postal: "" };
+  const r = { name: "", phone: "", address: "", subdistrict: "", district: "", province: "", postal: "", page: "" };
   if (!raw) return r;
-  const lines = raw.replace(/\r/g, "").split("\n").map(s => s.trim()).filter(Boolean);
+  let lines = raw.replace(/\r/g, "").split("\n").map(s => s.trim()).filter(Boolean);
+  // ชื่อเพจ / FB / Line ลูกค้า (บรรทัดที่ขึ้นต้น/มีคำว่า เพจ, FB, Line ฯลฯ)
+  const pageIdx = lines.findIndex(line => /(?:^|\s)(?:เพจ|เฟส|เฟซ|FB|facebook|ไลน์|line|page)\s*[:：\-]?\s*\S/i.test(line));
+  if (pageIdx >= 0) {
+    const m = lines[pageIdx].match(/(?:เพจ|เฟส|เฟซ|FB|facebook|ไลน์|line|page)\s*[:：\-]?\s*(.+)/i);
+    if (m && m[1]) r.page = m[1].trim();
+    lines = lines.filter((_, i) => i !== pageIdx);
+  }
   const full = lines.join(" ");
   // Phone
   const phoneMatch = full.match(/(\d[\d-]{8,})/);
@@ -574,6 +581,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
       receiver_district: parsed.district || f.receiver_district,
       receiver_province: parsed.province || f.receiver_province,
       receiver_postal: parsed.postal || f.receiver_postal,
+      customer_fb_line: parsed.page || f.customer_fb_line,
     }));
     setPasteMode(false);
     setRawAddr("");
@@ -625,7 +633,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
           {pasteMode && (
             <div style={{ marginBottom: 16, padding: 14, background: "#eef2ff", borderRadius: 12, border: "1.5px solid #c7d2fe" }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5", marginBottom: 6, display: "block" }}>วางชื่อ + ที่อยู่ทั้งหมดตรงนี้ ระบบจะจับอัตโนมัติ</label>
-              <textarea value={rawAddr} onChange={e => setRawAddr(e.target.value)} rows={4} placeholder={"สมชาย ใจดี 0891112222\n456 ม.5 ต.บ้านนา อ.เมือง จ.นครสวรรค์ 60000"} style={{ ...I, resize: "vertical", fontSize: 13, borderColor: "#a5b4fc" }} />
+              <textarea value={rawAddr} onChange={e => setRawAddr(e.target.value)} rows={5} placeholder={"เพจ: ครีมรากโสม\nสมชาย ใจดี 0891112222\n456 ม.5 ต.บ้านนา อ.เมือง จ.นครสวรรค์ 60000"} style={{ ...I, resize: "vertical", fontSize: 13, borderColor: "#a5b4fc" }} />
               <button onClick={handleParseAddress} disabled={!rawAddr.trim()} style={{ marginTop: 8, padding: "8px 20px", background: rawAddr.trim() ? "#4f46e5" : "#94a3b8", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: rawAddr.trim() ? "pointer" : "not-allowed" }}>⚡ จับที่อยู่อัตโนมัติ</button>
             </div>
           )}
