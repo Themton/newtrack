@@ -3025,6 +3025,44 @@ export default function FlashBackend() {
           );
         })()}
 
+        {/* สรุปสินค้า จาก Note */}
+        {(() => {
+          const productType = (remark) => {
+            if (!remark) return "(ไม่ระบุ)";
+            let s = String(remark).split("ปลายทาง")[0].trim();
+            s = s.replace(/[0-9]+\s*$/, "").trim();
+            return s || "(ไม่ระบุ)";
+          };
+          const byType = {};
+          for (const p of parcels) {
+            if (p.status === "cancelled") continue;
+            const t = productType(p.remark);
+            if (!byType[t]) byType[t] = { count: 0, cod: 0 };
+            byType[t].count++;
+            if (p.cod_enabled) byType[t].cod += Number(p.cod_amount || 0);
+          }
+          const rows = Object.entries(byType).sort((a, b) => b[1].count - a[1].count);
+          if (rows.length === 0) return null;
+          const max = Math.max(1, ...rows.map(r => r[1].count));
+          return (
+            <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "20px 24px", marginTop: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 14 }}>📦 สรุปสินค้า <span style={{ fontWeight: 400, fontSize: 12, color: "#9ca3af" }}>(จาก Note)</span></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {rows.map(([t, s], i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 120, fontSize: 13, fontWeight: 700, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t}</div>
+                    <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 22, overflow: "hidden" }}>
+                      <div style={{ width: `${(s.count / max) * 100}%`, height: "100%", background: "#6366f1", borderRadius: 6 }} />
+                    </div>
+                    <div style={{ width: 50, fontSize: 14, fontWeight: 800, color: "#4f46e5", textAlign: "right" }}>{s.count}</div>
+                    <div style={{ width: 92, fontSize: 12, color: "#c2410c", textAlign: "right" }}>฿{s.cod.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Realtime Indicator */}
         <div style={{ marginTop: 20, textAlign: "center", fontSize: 12, color: "#9ca3af" }}>
           🟢 Realtime — อัพเดตอัตโนมัติทุก 2 วินาที
