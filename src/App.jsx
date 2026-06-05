@@ -2965,6 +2965,29 @@ export default function FlashBackend() {
           </div>
         </div>
 
+        {/* แยก COD / ไม่ COD */}
+        {perm.viewCOD && (() => {
+          const act = parcels.filter(p => p.status !== "cancelled");
+          const cod = act.filter(p => p.cod_enabled && Number(p.cod_amount) > 0);
+          const nocod = act.filter(p => !(p.cod_enabled && Number(p.cod_amount) > 0));
+          const codSum = cod.reduce((s, p) => s + Number(p.cod_amount || 0), 0);
+          const nocodSum = nocod.reduce((s, p) => s + Number(p.sale_price || 0), 0);
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 8 }}>
+              <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", borderTop: "4px solid #f59e0b", padding: "18px 22px" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#b45309", marginBottom: 8 }}>💰 พัสดุเก็บเงินปลายทาง (COD)</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: "#d97706" }}>฿{codSum.toLocaleString()}</div>
+                <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>{cod.length} ใบ</div>
+              </div>
+              <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", borderTop: "4px solid #0ea5e9", padding: "18px 22px" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0369a1", marginBottom: 8 }}>📦 พัสดุไม่เก็บเงิน (ไม่ COD / โอนแล้ว)</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: "#0284c7" }}>{nocod.length} ใบ</div>
+                <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>ยอดขายรวม ฿{nocodSum.toLocaleString()}</div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ── กราฟ ── */}
         {(() => {
           const CARD = { background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: "16px 18px" };
