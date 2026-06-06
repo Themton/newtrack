@@ -1298,6 +1298,7 @@ export default function FlashBackend() {
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exportStaff, setExportStaff] = useState("");
+  const [exportProduct, setExportProduct] = useState("");
   const [exporting, setExporting] = useState(false);
   const [summaryPeriod, setSummaryPeriod] = useState("daily");
   const [summaryFrom, setSummaryFrom] = useState(new Date().toISOString().slice(0, 10));
@@ -3533,15 +3534,24 @@ export default function FlashBackend() {
   };
 
   const ExportPage = () => {
+    const productType = (remark) => {
+      if (!remark) return "(ไม่ระบุ)";
+      let s = String(remark).split("ปลายทาง")[0].trim();
+      s = s.replace(/[0-9]+\s*$/, "").trim();
+      return s || "(ไม่ระบุ)";
+    };
 
     const getExportData = () => {
       let list = parcels;
       if (exportShop) list = list.filter(p => p.shop_id === exportShop);
       if (exportStaff) list = list.filter(p => (p.sale_person || p.created_by_name) === exportStaff);
+      if (exportProduct) list = list.filter(p => productType(p.remark) === exportProduct);
       if (exportFrom) list = list.filter(p => new Date(p.created_at) >= new Date(exportFrom));
       if (exportTo) list = list.filter(p => new Date(p.created_at) <= new Date(exportTo + "T23:59:59"));
       return list;
     };
+
+    const productNames = useMemo(() => [...new Set(parcels.map(p => productType(p.remark)).filter(Boolean))].sort(), [parcels]);
 
     // รายชื่อพนักงานทั้งหมด (SalesPerson จากไฟล์)
     const staffNames = useMemo(() => [...new Set(parcels.map(p => p.sale_person || p.created_by_name).filter(Boolean))].sort(), [parcels]);
@@ -3575,7 +3585,7 @@ export default function FlashBackend() {
         "Customer FB/Line เฟส/ไลน์ลูกค้า", "SalesChannel ช่องทางจำหน่าย",
         "SalesPerson ชื่อแอดมิน", "SalePrice ราคาขาย",
         "COD* ยอดเก็บเงินปลายทาง", "Remark หมายเหตุ",
-        "Tracking", "Sort Code", "สถานะ", "ร้านค้า", "ผู้สร้างรายการ", "วันที่สร้าง",
+        "Tracking", "Sort Code", "สถานะ", "ร้านค้า", "ผู้สร้างรายการ", "วันที่สร้าง", "ประเภทสินค้า",
       ];
       const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
       const rows = data.map(p => {
@@ -3594,6 +3604,7 @@ export default function FlashBackend() {
           shop?.name || "",
           p.created_by_name || "",
           new Date(p.created_at).toLocaleString("th-TH"),
+          productType(p.remark),
         ];
       });
 
@@ -3613,11 +3624,26 @@ export default function FlashBackend() {
       const summaryHeaders = ["พนักงาน", "จำนวนทั้งหมด", "สร้างเลขแล้ว", "ปริ้นแล้ว", "ยกเลิก", "จำนวน COD", "ยอด COD รวม"];
       const summaryRows = Object.entries(staffSummary).map(([name, s]) => [name, s.total, s.created, s.printed, s.cancelled, s.cod, s.codAmount]);
 
+      // สรุปแยกสินค้า (จาก Note)
+      const prodSummary = {};
+      data.forEach(p => {
+        const t = productType(p.remark);
+        if (!prodSummary[t]) prodSummary[t] = { total: 0, cod: 0, codAmount: 0, sales: 0, delivered: 0 };
+        prodSummary[t].total++;
+        if (p.cod_enabled) { prodSummary[t].cod++; prodSummary[t].codAmount += Number(p.cod_amount || 0); }
+        prodSummary[t].sales += Number(p.sale_price || 0);
+        const fs = p.flash_status || "";
+        if (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ")) prodSummary[t].delivered++;
+      });
+      const prodHeaders = ["สินค้า", "จำนวน", "ส่งสำเร็จ", "ยอดขายรวม", "จำนวน COD", "ยอด COD รวม"];
+      const prodRows = Object.entries(prodSummary).sort((a, b) => b[1].total - a[1].total).map(([t, s]) => [t, s.total, s.delivered, s.sales, s.cod, s.codAmount]);
+
       if (format === "csv") {
         const bom = "\uFEFF";
         const mainCsv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
         const summaryCsv = "\n\n--- สรุปแยกพนักงาน ---\n" + [summaryHeaders, ...summaryRows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-        const blob = new Blob([bom + mainCsv + summaryCsv], { type: "text/csv;charset=utf-8" });
+        const prodCsv = "\n\n--- สรุปแยกสินค้า ---\n" + [prodHeaders, ...prodRows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+        const blob = new Blob([bom + mainCsv + summaryCsv + prodCsv], { type: "text/csv;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = `flash-export-${new Date().toISOString().slice(0,10)}.csv`; a.click();
         URL.revokeObjectURL(url);
@@ -3627,13 +3653,17 @@ export default function FlashBackend() {
         const noteRow = ["ช่องสีแดงต้องกรอก ช่องสีขาวไม่จำเป็น", "", "", "", "", "", "", "", "", "", "", "", "— คอลัมน์เพิ่มจากระบบ —"];
         const ws = XLSX.utils.aoa_to_sheet([noteRow, headers, ...rows]);
         // Column widths: MobileNo=14, Name=20, Address=35, SubDist=14, Dist=14, ZIP=8, FB=20, Channel=25, Person=14, Price=10, COD=10, Remark=25, Track=18, Sort=12, Status=12, Shop=16, Creator=16, Date=18
-        ws["!cols"] = [14,20,35,14,14,8,20,25,14,10,10,25,18,12,12,16,16,18].map(w => ({ wch: w }));
+        ws["!cols"] = [14,20,35,14,14,8,20,25,14,10,10,25,18,12,12,16,16,18,14].map(w => ({ wch: w }));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "ProShip");
         // Sheet 2: สรุปพนักงาน
         const ws2 = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
         ws2["!cols"] = summaryHeaders.map(() => ({ wch: 18 }));
         XLSX.utils.book_append_sheet(wb, ws2, "สรุปพนักงาน");
+        // Sheet 3: สรุปสินค้า
+        const ws3 = XLSX.utils.aoa_to_sheet([prodHeaders, ...prodRows]);
+        ws3["!cols"] = prodHeaders.map(() => ({ wch: 16 }));
+        XLSX.utils.book_append_sheet(wb, ws3, "สรุปสินค้า");
         XLSX.writeFile(wb, `flash-export-${new Date().toISOString().slice(0,10)}.xlsx`);
       }
       setExporting(false);
@@ -3664,6 +3694,13 @@ export default function FlashBackend() {
                 <select value={exportStaff} onChange={e => setExportStaff(e.target.value)} style={{ ...I, minWidth: 150 }}>
                   <option value="">ทุกคน</option>
                   {staffNames.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>สินค้า</label>
+                <select value={exportProduct} onChange={e => setExportProduct(e.target.value)} style={{ ...I, minWidth: 150 }}>
+                  <option value="">ทุกสินค้า</option>
+                  {productNames.map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
               <div>
