@@ -1234,6 +1234,8 @@ export default function FlashBackend() {
     try { const s = sessionStorage.getItem("fx_user"); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [parcels, setParcels] = useState([]);
+  // เดือนที่เลือกดู (โหลดเฉพาะเดือนนี้เพื่อประหยัด egress) — ค่าเริ่มต้น = เดือนปัจจุบัน
+  const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -1324,10 +1326,15 @@ export default function FlashBackend() {
     if (isDemo) { setParcels(demoData); setLoading(false); return; }
     setLoading(true);
     try {
+      // โหลดเฉพาะเดือนที่เลือก (ลด egress) — กรองด้วย created_at
+      const [yy, mm] = month.split("-").map(Number);
+      const start = new Date(yy, mm - 1, 1).toISOString();
+      const end = new Date(yy, mm, 1).toISOString(); // ต้นเดือนถัดไป
+      const monthFilter = `&created_at=gte.${start}&created_at=lt.${end}`;
       let all = [], pg = 0;
-      while (pg < 10) {
+      while (pg < 30) {
         const from = pg * 1000;
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&order=created_at.desc${monthFilter}`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
         const data = await res.json();
         if (!Array.isArray(data) || !data.length) break;
         all = all.concat(data);
@@ -1344,7 +1351,15 @@ export default function FlashBackend() {
         setParcels(prev => prev.map(x => toFix.find(f => f.id === x.id) ? { ...x, status: "printed" } : x));
       }
     } catch {} setLoading(false);
-  }, [isDemo, demoData]);
+  }, [isDemo, demoData, month]);
+
+  // เลื่อนเดือนก่อนหน้า/ถัดไป
+  const shiftMonth = (delta) => {
+    const [y, m] = month.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    setPage(0);
+  };
 
   useEffect(() => { if (user) loadParcels(); }, [user, loadParcels]);
 
@@ -4020,6 +4035,12 @@ export default function FlashBackend() {
               <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="ค้นหา..." style={{ width: "100%", padding: "9px 12px 9px 36px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
             </div>
             <button onClick={loadParcels} style={{ padding: "9px 12px", background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>🔄</button>
+            {/* เลือกเดือน — โหลดเฉพาะเดือนนี้ (ประหยัด egress) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 2, background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "1px 2px" }}>
+              <button onClick={() => shiftMonth(-1)} title="เดือนก่อนหน้า" style={{ padding: "6px 9px", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#64748b", lineHeight: 1 }}>‹</button>
+              <input type="month" value={month} onChange={e => { setMonth(e.target.value); setPage(0); }} style={{ padding: "5px 2px", border: "none", background: "transparent", fontSize: 13, fontFamily: "inherit", fontWeight: 700, color: "#dc2626", outline: "none" }} />
+              <button onClick={() => shiftMonth(1)} title="เดือนถัดไป" style={{ padding: "6px 9px", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#64748b", lineHeight: 1 }}>›</button>
+            </div>
             {/* กลาง: กรอง + ปริ้น */}
             {shops?.length > 0 && <select value={selectedShopFilter} onChange={e => { setSelectedShopFilter(e.target.value); setPage(0); }} style={{ padding: "9px 10px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 12, fontFamily: "inherit", fontWeight: 600, color: selectedShopFilter ? "#dc2626" : "#64748b" }}>
               <option value="">🏪 ทุกร้าน</option>
