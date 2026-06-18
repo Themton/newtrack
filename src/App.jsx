@@ -1433,58 +1433,8 @@ export default function FlashBackend() {
   // ═══ AUTO-SYNC FLASH STATUS — ทุก 5 นาที + ตอนโหลดหน้า ═══
   const parcelsRef = useRef(parcels);
   parcelsRef.current = parcels;
-  const lastAutoSync = useRef(0);
-  const autoSyncing = useRef(false);
-  useEffect(() => {
-    if (!user || isDemo) return;
-    const doAutoSync = async () => {
-      if (autoSyncing.current) return;
-      if (Date.now() - lastAutoSync.current < 30000) return;
-      const current = parcelsRef.current;
-      if (!current.length) return;
-      lastAutoSync.current = Date.now();
-      autoSyncing.current = true;
-      const toCheck = current.filter(p => p.flash_pno && p.status !== "cancelled" && p.flash_status !== "เซ็นรับแล้ว" && p.flash_status !== "คืนสำเร็จ");
-      if (!toCheck.length) { autoSyncing.current = false; return; }
-      try {
-        const allUpdates = {};
-        const byAcc = {};
-        for (const p of toCheck) { const a = getFlashAccount(p); const k = a.mchId; if (!byAcc[k]) byAcc[k] = { acc: a, parcels: [] }; byAcc[k].parcels.push(p); }
-        for (const group of Object.values(byAcc)) {
-          for (let i = 0; i < group.parcels.length; i += 20) {
-            const batch = group.parcels.slice(i, i + 20);
-            try {
-              const result = await flashApi.getTracking(batch.map(p => p.flash_pno), group.acc);
-              if (result.code === 1 && result.data) {
-                for (const item of result.data) {
-                  const parcel = batch.find(p => p.flash_pno === item.pno);
-                  if (!parcel) continue;
-                  const lastRoute = item.routes?.[0];
-                  const updates = { flash_status: item.stateText || "", flash_detail: lastRoute?.message || "", flash_updated_at: new Date((item.stateChangeAt || 0) * 1000).toISOString(), flash_state: item.state };
-                  // ถ้า Flash รับแล้ว แต่สถานะระบบยังเป็น draft/created → อัพเดตเป็น printed
-                  if (item.stateText && item.stateText !== "สร้างรายการ" && (parcel.status === "draft" || parcel.status === "created")) {
-                    updates.status = "printed";
-                  }
-                  allUpdates[parcel.id] = updates;
-                  const dbUpdates = { flash_status: updates.flash_status, flash_detail: updates.flash_detail, flash_updated_at: updates.flash_updated_at };
-                  if (updates.status) dbUpdates.status = updates.status;
-                  try { await sb.update("fx_parcels", parcel.id, dbUpdates); } catch {}
-                }
-              }
-            } catch {}
-            if (i + 20 < group.parcels.length) await new Promise(r => setTimeout(r, 500));
-          }
-        }
-        // Batch: อัพเดต state ครั้งเดียว
-        if (Object.keys(allUpdates).length > 0) {
-          setParcels(prev => prev.map(x => allUpdates[x.id] ? { ...x, ...allUpdates[x.id] } : x));
-        }
-      } finally { autoSyncing.current = false; }
-    };
-    const initTimer = setTimeout(doAutoSync, 2000);
-    const interval = setInterval(doAutoSync, 5 * 60 * 1000);
-    return () => { clearTimeout(initTimer); clearInterval(interval); };
-  }, [user, isDemo]);
+  // auto-sync สถานะ Flash ย้ายไปทำที่ Cloudflare Worker (cron) แล้ว — ตัดออกจากเบราว์เซอร์เพื่อเลิกงานซ้ำและลด egress
+  // (ปุ่มรีเฟรชสถานะเอง refreshFlashStatus ยังใช้ได้ตามปกติ)
 
   const STATUS_TABS = [
     { key: "ALL", label: "ทั้งหมด", icon: "📋", color: "#475569" },
@@ -2706,7 +2656,7 @@ export default function FlashBackend() {
       <div style={{ padding: 24 }}>
         <div style={{ marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#111" }}>🚚 รายงานสถานะพัสดุ Flash</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>ติดตามสถานะขนส่งแบบเรียลไทม์ — อัพเดตอัตโนมัติทุก 5 นาที</p>
+          <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>ติดตามสถานะขนส่งแบบเรียลไทม์ — อัพเดตอัตโนมัติทุก ~2 นาที (ระบบหลังบ้าน)</p>
           <div style={{ marginTop: 12, padding: "10px 16px", background: "#fef2f2", borderRadius: 10, border: "1px solid #fecaca", fontSize: 12, color: "#7f1d1d", display: "flex", gap: 16, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700 }}>↩️ ตีกลับทั้งหมด</span><span>= รวมทุกสถานะตีกลับ</span>
             <span style={{ borderLeft: "1px solid #fca5a5", paddingLeft: 12 }}>❌ <b>นำส่งไม่สำเร็จ</b> = ส่งไม่ได้ (ไม่มีคนรับ/ปฏิเสธ/ที่อยู่ผิด)</span>
@@ -4080,7 +4030,7 @@ export default function FlashBackend() {
                       <span style={{ fontSize: 14, fontWeight: 800, color: "#dc2626" }}>พัสดุยังไม่เข้าระบบ Flash: {notInFlash.length} รายการ</span>
                       <span style={{ fontSize: 12, color: "#92400e", marginLeft: 8 }}>มีเลข Tracking แล้วแต่ Flash ยังไม่ได้ยิงรับ</span>
                       {flashRefreshing && <span style={{ fontSize: 11, color: "#6366f1", marginLeft: 8, fontWeight: 600 }}>⟳ กำลัง sync สถานะ...</span>}
-                      {!flashRefreshing && <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 8 }}>อัพเดตอัตโนมัติทุก 5 นาที</span>}
+                      {!flashRefreshing && <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 8 }}>อัพเดตอัตโนมัติทุก ~2 นาที (ระบบหลังบ้าน)</span>}
                     </div>
                   </div>
                   <span style={{ fontSize: 14, color: "#dc2626", fontWeight: 800, transition: "transform .2s", transform: showNotifPanel ? "rotate(180deg)" : "" }}>▼</span>
