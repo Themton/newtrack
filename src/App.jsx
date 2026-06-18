@@ -3836,7 +3836,7 @@ export default function FlashBackend() {
     const exportFull = async (format) => {
       if (!list.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
       const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
-      const headers = ["ลำดับ", "เลขพัสดุ (Tracking)", "Sort Code", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "ตำบล", "อำเภอ", "จังหวัด", "รหัสไปรษณีย์", "COD", "สถานะ", "ร้านค้า", "พนักงาน", "ผู้สร้าง", "วันที่สร้าง", "ประเภทสินค้า", "หมายเหตุ"];
+      const headers = ["ลำดับ", "เลขพัสดุ (Tracking)", "Sort Code", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "ตำบล", "อำเภอ", "จังหวัด", "รหัสไปรษณีย์", "COD", "สถานะ", "สถานะแฟลช", "รายละเอียดแฟลช", "อัปเดตแฟลชล่าสุด", "ร้านค้า", "พนักงาน", "ผู้สร้าง", "วันที่สร้าง", "ประเภทสินค้า", "หมายเหตุ"];
       const rows = list.map((p, i) => {
         const shop = shops?.find(s => s.id === p.shop_id);
         return [
@@ -3852,6 +3852,9 @@ export default function FlashBackend() {
           p.receiver_postal || "",
           p.cod_enabled ? (p.cod_amount || 0) : 0,
           statusMap[p.status] || p.status || "",
+          p.flash_status || "สร้างรายการ",
+          p.flash_detail || "",
+          p.flash_updated_at ? new Date(p.flash_updated_at).toLocaleString("th-TH") : "",
           shop?.name || "",
           p.sale_person || p.created_by_name || "",
           p.created_by_name || "",
@@ -3870,7 +3873,7 @@ export default function FlashBackend() {
       } else {
         const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
         const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        ws["!cols"] = [6, 18, 12, 20, 14, 35, 14, 14, 14, 10, 10, 12, 16, 14, 16, 18, 14, 25].map(w => ({ wch: w }));
+        ws["!cols"] = [6, 18, 12, 20, 14, 35, 14, 14, 14, 10, 10, 12, 18, 32, 18, 16, 14, 16, 18, 14, 25].map(w => ({ wch: w }));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "เลขพัสดุ");
         XLSX.writeFile(wb, `${fname}.xlsx`);
