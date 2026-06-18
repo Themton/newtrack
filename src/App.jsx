@@ -3832,13 +3832,59 @@ export default function FlashBackend() {
       showToast(`ดาวน์โหลด ${pnos.length} เลขพัสดุแล้ว`);
     };
 
+    // Export ครบทุกคอลัมน์/ทุกแถว เป็น Excel (.xlsx) หรือ CSV
+    const exportFull = async (format) => {
+      if (!list.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
+      const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
+      const headers = ["ลำดับ", "เลขพัสดุ (Tracking)", "Sort Code", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "ตำบล", "อำเภอ", "จังหวัด", "รหัสไปรษณีย์", "COD", "สถานะ", "ร้านค้า", "พนักงาน", "ผู้สร้าง", "วันที่สร้าง", "ประเภทสินค้า", "หมายเหตุ"];
+      const rows = list.map((p, i) => {
+        const shop = shops?.find(s => s.id === p.shop_id);
+        return [
+          i + 1,
+          p.flash_pno || "",
+          p.flash_sort_code || "",
+          p.receiver_name || "",
+          p.receiver_phone || "",
+          p.receiver_address || "",
+          p.receiver_subdistrict || "",
+          p.receiver_district || "",
+          p.receiver_province || "",
+          p.receiver_postal || "",
+          p.cod_enabled ? (p.cod_amount || 0) : 0,
+          statusMap[p.status] || p.status || "",
+          shop?.name || "",
+          p.sale_person || p.created_by_name || "",
+          p.created_by_name || "",
+          p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "",
+          productType(p.remark),
+          p.remark || "",
+        ];
+      });
+      const fname = `tracking-${new Date().toISOString().slice(0, 10)}`;
+      if (format === "csv") {
+        const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = `${fname}.csv`; a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        ws["!cols"] = [6, 18, 12, 20, 14, 35, 14, 14, 14, 10, 10, 12, 16, 14, 16, 18, 14, 25].map(w => ({ wch: w }));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "เลขพัสดุ");
+        XLSX.writeFile(wb, `${fname}.xlsx`);
+      }
+      showToast(`Export ${list.length} รายการแล้ว`);
+    };
+
     const SEPS = [{ k: "newline", l: "บรรทัดละเลข" }, { k: "comma", l: "คั่นด้วย ," }, { k: "space", l: "เว้นวรรค" }];
 
     return (
       <div style={{ padding: 24 }}>
         <div style={{ marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>🔢 Export เลขพัสดุ</h2>
-          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ดึงเฉพาะเลข Tracking ล้วน ๆ — คัดลอกหรือดาวน์โหลดเป็นไฟล์ .txt</p>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ดึงเลขพัสดุ — Export เป็น Excel/CSV ครบทุกคอลัมน์ หรือคัดลอกเลขล้วน ๆ เป็น .txt</p>
         </div>
         <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
 
@@ -3871,7 +3917,7 @@ export default function FlashBackend() {
 
           {/* Count + Preview */}
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>พบ {pnos.length} เลขพัสดุ</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>พบ {list.length} รายการ · {pnos.length} เลขพัสดุไม่ซ้ำ</div>
             <textarea
               readOnly
               value={text}
@@ -3882,13 +3928,23 @@ export default function FlashBackend() {
           </div>
 
           {/* Buttons */}
-          <div style={{ padding: "16px 24px", display: "flex", gap: 12 }}>
-            <button onClick={copyText} disabled={!pnos.length} style={{ flex: 1, padding: 14, background: pnos.length ? "#4f46e5" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: pnos.length ? "pointer" : "not-allowed" }}>
-              📋 คัดลอกทั้งหมด ({pnos.length})
-            </button>
-            <button onClick={downloadTxt} disabled={!pnos.length} style={{ flex: 1, padding: 14, background: pnos.length ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: pnos.length ? "pointer" : "not-allowed" }}>
-              📄 ดาวน์โหลด .txt
-            </button>
+          <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button onClick={() => exportFull("xlsx")} disabled={!list.length} style={{ flex: 1, padding: 14, background: list.length ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: list.length ? "pointer" : "not-allowed" }}>
+                📊 Export Excel (.xlsx) — ครบทุกคอลัมน์
+              </button>
+              <button onClick={() => exportFull("csv")} disabled={!list.length} style={{ flex: 1, padding: 14, background: list.length ? "#0ea5e9" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: list.length ? "pointer" : "not-allowed" }}>
+                📄 Export CSV
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button onClick={copyText} disabled={!pnos.length} style={{ flex: 1, padding: 12, background: "#fff", color: pnos.length ? "#4f46e5" : "#94a3b8", border: `1.5px solid ${pnos.length ? "#4f46e5" : "#cbd5e1"}`, borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: pnos.length ? "pointer" : "not-allowed" }}>
+                📋 คัดลอกเลขล้วน ({pnos.length})
+              </button>
+              <button onClick={downloadTxt} disabled={!pnos.length} style={{ flex: 1, padding: 12, background: "#fff", color: pnos.length ? "#334155" : "#94a3b8", border: `1.5px solid ${pnos.length ? "#cbd5e1" : "#e2e8f0"}`, borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: pnos.length ? "pointer" : "not-allowed" }}>
+                📝 ดาวน์โหลด .txt
+              </button>
+            </div>
           </div>
         </div>
       </div>
