@@ -1955,6 +1955,7 @@ export default function FlashBackend() {
     ...(perm.dashboard ? [{ key: "dashboard", label: "Dashboard", icon: "📊" }] : []),
     { key: "parcels", label: "การจัดส่ง", icon: "📦" },
     { key: "report", label: "รายงานสถานะ", icon: "🚚" },
+    { key: "notinflash", label: "แฟลชยังไม่เข้ารับ", icon: "📭" },
     ...(perm.status ? [{ key: "problems", label: "พัสดุมีปัญหา", icon: "⚠️" }] : []),
     ...(perm.dashboard ? [{ key: "summary", label: "สรุปรายงาน", icon: "📋" }] : []),
     ...(perm.evaluate ? [{ key: "evaluate", label: "ประเมินผล", icon: "📈" }] : []),
@@ -2053,6 +2054,42 @@ export default function FlashBackend() {
             </table>
           </div>
           {rows.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 36 }}>💸</div><div style={{ marginTop: 8 }}>{filt === "outstanding" ? "ไม่มียอดค้างรับ — เก็บครบแล้ว 🎉" : filt === "received" ? "ยังไม่มีรายการที่ยืนยันรับเงิน" : "ยังไม่มีพัสดุ COD ที่ส่งสำเร็จ"}</div></div>}
+        </div>
+      </div>
+    );
+  };
+
+  // ═══ แฟลชยังไม่เข้ารับ — พัสดุสร้างเลขแล้วแต่ Flash ยังไม่สแกนรับ ═══
+  const NotInFlashPage = () => {
+    const list = useMemo(() => [...notInFlash].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)), [notInFlash]);
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📭 แฟลชยังไม่เข้ารับ</h2>
+            <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>พัสดุที่สร้างเลขแล้วแต่ Flash ยังไม่สแกนรับ — ปริ้นใบปะหน้าให้พนักงานแฟลช แล้วรอเข้ารับ</p>
+          </div>
+          {list.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={refreshFlashStatus} disabled={flashRefreshing} style={{ padding: "10px 16px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: flashRefreshing ? "default" : "pointer" }}>{flashRefreshing ? "⟳ กำลังเช็ก..." : "🔄 เช็กสถานะตอนนี้"}</button>
+              <button onClick={() => setPrintPreview(list.map(p => ({ ...p })))} style={{ padding: "10px 16px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>🖨️ ปริ้นทั้งหมด ({list.length})</button>
+            </div>
+          )}
+        </div>
+        {list.length === 0 && <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: 50, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 40 }}>✅</div><div style={{ marginTop: 10, fontWeight: 600 }}>แฟลชเข้ารับครบทุกชิ้นแล้ว</div></div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {list.map(p => (
+            <div key={p.id} style={{ background: "#fff", borderRadius: 14, border: "1px solid #fde68a", borderLeft: "4px solid #f59e0b", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>{p.receiver_name} <span style={{ fontFamily: "monospace", fontSize: 12, color: "#4f46e5", fontWeight: 600, marginLeft: 6 }}>{p.flash_pno}</span></div>
+                <div style={{ fontSize: 13, color: "#64748b", marginTop: 3 }}>📍 {[p.receiver_district, p.receiver_province].filter(Boolean).join(" ")} · 📅 {new Date(p.created_at).toLocaleDateString("th-TH", { day: "numeric", month: "short" })} {p.cod_enabled && Number(p.cod_amount) > 0 ? <span style={{ color: "#dc2626", fontWeight: 700 }}>· COD ฿{Number(p.cod_amount).toLocaleString()}</span> : null}</div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: "#fef3c7", color: "#92400e", whiteSpace: "nowrap" }}>รอเข้ารับ</span>
+                <button onClick={() => setPrintPreview([{ ...p }])} style={{ padding: "8px 14px", borderRadius: 8, background: "#059669", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>🖨️ ปริ้น</button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -3952,7 +3989,7 @@ export default function FlashBackend() {
         {/* Menu */}
         <div style={{ flex: 1, padding: "12px 8px" }}>
           {MENU.map(m => {
-            const badge = m.key === "parcels" ? notInFlash.length : 0;
+            const badge = (m.key === "parcels" || m.key === "notinflash") ? notInFlash.length : 0;
             return (
             <button key={m.key} onClick={() => setActivePage(m.key)} style={{
               width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, marginBottom: 4,
@@ -4219,6 +4256,7 @@ export default function FlashBackend() {
           {activePage === "dashboard" && <DashboardPage />}
           {activePage === "report" && <ReportPage />}
           {activePage === "problems" && <ProblemPage />}
+          {activePage === "notinflash" && <NotInFlashPage />}
           {activePage === "activity" && <ActivityLogPage />}
           {activePage === "summary" && <SummaryReportPage />}
           {activePage === "evaluate" && <EvaluatePage />}
