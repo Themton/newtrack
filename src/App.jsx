@@ -3835,6 +3835,13 @@ export default function FlashBackend() {
     // Export ครบทุกคอลัมน์/ทุกแถว เป็น Excel (.xlsx) หรือ CSV
     const exportFull = async (format) => {
       if (!list.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
+      const productType = (remark) => {
+        if (!remark) return "(ไม่ระบุ)";
+        let s = String(remark).split("ปลายทาง")[0].trim();
+        s = s.replace(/[0-9]+\s*$/, "").trim();
+        return s || "(ไม่ระบุ)";
+      };
+      try {
       const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
       const headers = ["ลำดับ", "เลขพัสดุ (Tracking)", "Sort Code", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "ตำบล", "อำเภอ", "จังหวัด", "รหัสไปรษณีย์", "COD", "สถานะ", "สถานะแฟลช", "รายละเอียดแฟลช", "อัปเดตแฟลชล่าสุด", "ร้านค้า", "พนักงาน", "ผู้สร้าง", "วันที่สร้าง", "ประเภทสินค้า", "หมายเหตุ"];
       const rows = list.map((p, i) => {
@@ -3879,6 +3886,10 @@ export default function FlashBackend() {
         XLSX.writeFile(wb, `${fname}.xlsx`);
       }
       showToast(`Export ${list.length} รายการแล้ว`);
+      } catch (err) {
+        console.error("Export error:", err);
+        uiAlert("Export ไม่สำเร็จ: " + (err?.message || String(err)));
+      }
     };
 
     const SEPS = [{ k: "newline", l: "บรรทัดละเลข" }, { k: "comma", l: "คั่นด้วย ," }, { k: "space", l: "เว้นวรรค" }];
