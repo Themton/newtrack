@@ -1265,6 +1265,7 @@ export default function FlashBackend() {
     if (activePage === "dashboard" && !p.dashboard) setActivePageRaw("parcels");
     if (activePage === "evaluate" && !p.evaluate) setActivePageRaw("parcels");
     if (activePage === "export" && !p.exportData) setActivePageRaw("parcels");
+    if (activePage === "exportpno" && !p.exportData) setActivePageRaw("parcels");
     if (activePage === "users" && !p.users) setActivePageRaw("parcels");
   }, [user, activePage]);
   const [selectedShopFilter, setSelectedShopFilter] = useState("");
@@ -1300,6 +1301,11 @@ export default function FlashBackend() {
   const [exportStaff, setExportStaff] = useState("");
   const [exportProduct, setExportProduct] = useState("");
   const [exporting, setExporting] = useState(false);
+  // Export เลขพัสดุ (plain list) states
+  const [pnoShop, setPnoShop] = useState("");
+  const [pnoFrom, setPnoFrom] = useState("");
+  const [pnoTo, setPnoTo] = useState("");
+  const [pnoSep, setPnoSep] = useState("newline");
   const [summaryPeriod, setSummaryPeriod] = useState("daily");
   const [summaryFrom, setSummaryFrom] = useState(new Date().toISOString().slice(0, 10));
   const [summaryTo, setSummaryTo] = useState(new Date().toISOString().slice(0, 10));
@@ -1991,6 +1997,7 @@ export default function FlashBackend() {
     { key: "import", label: "Import ไฟล์", icon: "📥" },
     { key: "upsell", label: "Upsell", icon: "💰" },
     ...(perm.exportData ? [{ key: "export", label: "Export ข้อมูล", icon: "📤" }] : []),
+    ...(perm.exportData ? [{ key: "exportpno", label: "Export เลขพัสดุ", icon: "🔢" }] : []),
     { key: "shops", label: "ร้านค้า", icon: "🏪" },
     ...(perm.users ? [{ key: "users", label: "จัดการผู้ใช้", icon: "👥" }] : []),
     ...(perm.users ? [{ key: "activity", label: "บันทึกกิจกรรม", icon: "📜" }] : []),
@@ -3777,6 +3784,117 @@ export default function FlashBackend() {
     );
   };
 
+  // ═══ EXPORT เลขพัสดุ PAGE — รายการเลข Tracking ล้วน ๆ (คัดลอก / ดาวน์โหลด .txt) ═══
+  const ExportPnoPage = () => {
+    const I = { padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit" };
+
+    // กรองเฉพาะพัสดุที่มีเลข Tracking และไม่ถูกยกเลิก
+    const list = useMemo(() => {
+      let l = parcels.filter(p => p.flash_pno && p.status !== "cancelled");
+      if (pnoShop) l = l.filter(p => p.shop_id === pnoShop);
+      if (pnoFrom) l = l.filter(p => new Date(p.created_at) >= new Date(pnoFrom));
+      if (pnoTo) l = l.filter(p => new Date(p.created_at) <= new Date(pnoTo + "T23:59:59"));
+      return l;
+    }, [parcels, pnoShop, pnoFrom, pnoTo]);
+
+    // เลขพัสดุไม่ซ้ำ (เรียงตามลำดับล่าสุดก่อน ตาม parcels ที่ sort created_at.desc แล้ว)
+    const pnos = useMemo(() => {
+      const seen = new Set(); const out = [];
+      for (const p of list) { const n = String(p.flash_pno).trim(); if (n && !seen.has(n)) { seen.add(n); out.push(n); } }
+      return out;
+    }, [list]);
+
+    const sep = pnoSep === "comma" ? ", " : pnoSep === "space" ? " " : "\n";
+    const text = pnos.join(sep);
+
+    const copyText = async () => {
+      if (!pnos.length) { uiAlert("ไม่มีเลขพัสดุที่จะคัดลอก"); return; }
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast(`คัดลอก ${pnos.length} เลขพัสดุแล้ว`);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try { document.execCommand("copy"); showToast(`คัดลอก ${pnos.length} เลขพัสดุแล้ว`); }
+        catch { uiAlert("คัดลอกไม่สำเร็จ — กรุณาเลือกข้อความในกล่องแล้วคัดลอกเอง"); }
+        document.body.removeChild(ta);
+      }
+    };
+
+    const downloadTxt = () => {
+      if (!pnos.length) { uiAlert("ไม่มีเลขพัสดุที่จะดาวน์โหลด"); return; }
+      const blob = new Blob(["\uFEFF" + pnos.join("\n")], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `tracking-${new Date().toISOString().slice(0, 10)}.txt`; a.click();
+      URL.revokeObjectURL(url);
+      showToast(`ดาวน์โหลด ${pnos.length} เลขพัสดุแล้ว`);
+    };
+
+    const SEPS = [{ k: "newline", l: "บรรทัดละเลข" }, { k: "comma", l: "คั่นด้วย ," }, { k: "space", l: "เว้นวรรค" }];
+
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>🔢 Export เลขพัสดุ</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ดึงเฉพาะเลข Tracking ล้วน ๆ — คัดลอกหรือดาวน์โหลดเป็นไฟล์ .txt</p>
+        </div>
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+
+          {/* Filters */}
+          <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ร้านค้า</label>
+                <select value={pnoShop} onChange={e => setPnoShop(e.target.value)} style={{ ...I, minWidth: 150 }}>
+                  <option value="">ทุกร้าน</option>
+                  {shops?.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ตั้งแต่วันที่</label>
+                <input type="date" value={pnoFrom} onChange={e => setPnoFrom(e.target.value)} style={I} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ถึงวันที่</label>
+                <input type="date" value={pnoTo} onChange={e => setPnoTo(e.target.value)} style={I} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>รูปแบบ</label>
+                <select value={pnoSep} onChange={e => setPnoSep(e.target.value)} style={{ ...I, minWidth: 130 }}>
+                  {SEPS.map(s => <option key={s.k} value={s.k}>{s.l}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Count + Preview */}
+          <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>พบ {pnos.length} เลขพัสดุ</div>
+            <textarea
+              readOnly
+              value={text}
+              placeholder="ไม่มีเลขพัสดุตามเงื่อนไขที่เลือก"
+              onFocus={e => e.target.select()}
+              style={{ width: "100%", minHeight: 260, maxHeight: 420, padding: "12px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "monospace", lineHeight: 1.6, resize: "vertical", outline: "none", background: "#f8fafc", whiteSpace: pnoSep === "newline" ? "pre" : "pre-wrap" }}
+            />
+          </div>
+
+          {/* Buttons */}
+          <div style={{ padding: "16px 24px", display: "flex", gap: 12 }}>
+            <button onClick={copyText} disabled={!pnos.length} style={{ flex: 1, padding: 14, background: pnos.length ? "#4f46e5" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: pnos.length ? "pointer" : "not-allowed" }}>
+              📋 คัดลอกทั้งหมด ({pnos.length})
+            </button>
+            <button onClick={downloadTxt} disabled={!pnos.length} style={{ flex: 1, padding: 14, background: pnos.length ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: pnos.length ? "pointer" : "not-allowed" }}>
+              📄 ดาวน์โหลด .txt
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ═══ USERS PAGE — inline ═══
   const UsersPage = () => <div style={{ padding: 24 }}><UserManagement onClose={() => {}} isDemo={isDemo} inline /></div>;
 
@@ -4064,6 +4182,7 @@ export default function FlashBackend() {
           {activePage === "summary" && <SummaryReportPage />}
           {activePage === "evaluate" && <EvaluatePage />}
           {activePage === "cod" && <CODReconcilePage />}
+          {activePage === "exportpno" && <ExportPnoPage />}
           {activePage === "import" && (
             <div style={{ padding: 24 }}>
               <div style={{ marginBottom: 24 }}>
