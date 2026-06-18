@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path d="M22 14 H78 Q86 14 86 22 V56 Q86 74 50 88 Q14 74 14 56 V22 Q14 14 22 14 Z" fill="rgb(226,30,30)" stroke="rgb(140,12,12)" stroke-width="4"/>
+  <rect x="30" y="28" width="40" height="40" rx="8" fill="rgb(245,197,24)"/>
+  <text x="50" y="60" font-family="Georgia, 'Times New Roman', serif" font-size="34" font-weight="800" font-style="italic" fill="rgb(20,20,20)" text-anchor="middle">M</text>
+</svg>
