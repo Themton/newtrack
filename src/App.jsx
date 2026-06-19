@@ -1403,12 +1403,13 @@ export default function FlashBackend() {
   };
 
   // ═══ พัสดุค้างรับ "ทุกเดือน" — สำหรับเมนู "แฟลชยังไม่เข้ารับ" (มีเลขแล้วแต่ Flash ยังไม่สแกนรับเข้าระบบ) ═══
+  const FLASH_COLLECTED = ["รับพัสดุแล้ว", "ระหว่างการขนส่ง", "กำลังจัดส่ง", "ส่งคืน", "เซ็นรับแล้ว", "คืนสำเร็จ"];
   const [notInFlashAll, setNotInFlashAll] = useState([]);
   const loadNotInFlash = useCallback(async () => {
     if (isDemo) return;
     try {
-      const enc = encodeURIComponent("สร้างรายการ");
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.eq.${enc})&order=created_at.desc`;
+      const inList = ["รับพัสดุแล้ว", "ระหว่างการขนส่ง", "กำลังจัดส่ง", "ส่งคืน", "เซ็นรับแล้ว", "คืนสำเร็จ"].map(s => encodeURIComponent(s)).join(",");
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.not.in.(${inList}))&order=created_at.desc`;
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
       if (Array.isArray(data)) setNotInFlashAll(data);
@@ -1468,7 +1469,7 @@ export default function FlashBackend() {
   const stats = useMemo(() => ({ total: statsData.length, draft: statsData.filter(p => p.status === "draft").length, created: statsData.filter(p => p.status === "created").length, printed: statsData.filter(p => p.status === "printed").length, cancelled: statsData.filter(p => p.status === "cancelled").length, codTotal: statsData.filter(p => p.cod_enabled).reduce((s, p) => s + Number(p.cod_amount || 0), 0) }), [statsData]);
 
   // แจ้งเตือน: พัสดุที่มีเลข Tracking แต่ Flash ยังไม่รับเข้าระบบ
-  const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && (!p.flash_status || p.flash_status === "สร้างรายการ")), [parcels]);
+  const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && !FLASH_COLLECTED.includes(p.flash_status)), [parcels]);
 
   const handleDelete = async (p) => { if (!await uiConfirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); logActivity("ลบพัสดุ", `${p.parcel_no || ""} · ${p.receiver_name}`); await sb.broadcastChange(); } catch (e) { uiAlert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
   const markPrinted = async (p) => {
