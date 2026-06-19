@@ -1407,8 +1407,8 @@ export default function FlashBackend() {
   const loadNotInFlash = useCallback(async () => {
     if (isDemo) return;
     try {
-      // ยังไม่เข้ารับ = flash_detail ว่าง (Flash จะใส่รายละเอียดให้เมื่อสแกนรับจริงเท่านั้น)
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&flash_detail=is.null&order=created_at.desc`;
+      // ยังไม่เข้ารับ = flash_detail เป็นค่าว่าง "" (Flash จะใส่รายละเอียดให้เมื่อสแกนรับจริงเท่านั้น; default ของคอลัมน์คือ '')
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&flash_detail=eq.&order=created_at.desc`;
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
       if (Array.isArray(data)) setNotInFlashAll(data);
@@ -1468,7 +1468,7 @@ export default function FlashBackend() {
   const stats = useMemo(() => ({ total: statsData.length, draft: statsData.filter(p => p.status === "draft").length, created: statsData.filter(p => p.status === "created").length, printed: statsData.filter(p => p.status === "printed").length, cancelled: statsData.filter(p => p.status === "cancelled").length, codTotal: statsData.filter(p => p.cod_enabled).reduce((s, p) => s + Number(p.cod_amount || 0), 0) }), [statsData]);
 
   // แจ้งเตือน: พัสดุที่มีเลข Tracking แต่ Flash ยังไม่รับเข้าระบบ
-  const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && p.flash_detail == null), [parcels]);
+  const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && !p.flash_detail), [parcels]);
 
   const handleDelete = async (p) => { if (!await uiConfirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); logActivity("ลบพัสดุ", `${p.parcel_no || ""} · ${p.receiver_name}`); await sb.broadcastChange(); } catch (e) { uiAlert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
   const markPrinted = async (p) => {
