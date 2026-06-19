@@ -1483,6 +1483,32 @@ export default function FlashBackend() {
   const [globalLoading, setGlobalLoading] = useState(null); // { msg, progress }
   const [toast, setToast] = useState(null); // { msg, type }
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+
+  // ═══ ตรวจเวอร์ชันใหม่ แล้วรีโหลดอัตโนมัติ (กันแท็บเก่าค้างรันโค้ดเก่า เขียน DB ผิด) ═══
+  useEffect(() => {
+    const liveKey = [...document.querySelectorAll('script[type="module"][src]')].map(s => s.getAttribute("src")).filter(Boolean).sort().join("|");
+    if (!liveKey) return; // dev mode / ไม่มี bundle
+    let reloading = false;
+    const base = (import.meta.env && import.meta.env.BASE_URL) || "/";
+    const check = async () => {
+      if (reloading) return;
+      try {
+        const res = await fetch(`${base}index.html?cb=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const html = await res.text();
+        const fetchedKey = [...html.matchAll(/<script[^>]*type="module"[^>]*src="([^"]+)"/g)].map(m => m[1]).sort().join("|");
+        if (fetchedKey && fetchedKey !== liveKey) {
+          reloading = true;
+          try { showToast("🔄 มีเวอร์ชันใหม่ กำลังอัปเดต..."); } catch {}
+          setTimeout(() => window.location.reload(), 1500);
+        }
+      } catch {}
+    };
+    const iv = setInterval(check, 60000);
+    const onFocus = () => check();
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(iv); window.removeEventListener("focus", onFocus); };
+  }, []);
   const [uiDlg, setUiDlg] = useState(null);
   useEffect(() => { _uiDialog = setUiDlg; return () => { _uiDialog = null; }; }, []);
   const logActivity = async (action, detail) => { try { if (!isDemo) await sb.insert("fx_activity_log", { actor_id: user?.id || null, actor_name: user?.display_name || "", action, detail }); } catch {} };
