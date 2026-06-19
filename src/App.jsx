@@ -1588,14 +1588,7 @@ export default function FlashBackend() {
     if (success > 0) {
       showToast(`สร้างเลข Tracking สำเร็จ ${success} รายการ`);
       logActivity("สร้างเลขหลายใบ", `${success} ใบ`);
-      const createdIds = new Set(targets.map(t => t.id));
-      setTimeout(() => {
-        setParcels(prev => {
-          const created = prev.filter(p => createdIds.has(p.id) && p.flash_pno);
-          if (created.length > 0) setPrintPreview(created.map(p => ({ ...p })));
-          return prev;
-        });
-      }, 300);
+      // (ไม่เปิดหน้าต่างปริ้นอัตโนมัติแล้ว — สถานะจะอยู่ "สร้างเลขแล้ว" จนกว่าจะกดปริ้น/เปลี่ยนเป็นปริ้นแล้วเอง)
     }
     setSelectedIds(new Set());
   };
