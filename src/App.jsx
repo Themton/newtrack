@@ -1344,14 +1344,7 @@ export default function FlashBackend() {
         pg++;
       }
       setParcels(all);
-      // Auto-fix: ถ้ามี flash_status แต่สถานะระบบยัง draft/created → อัพเดตเป็น printed
-      const toFix = all.filter(p => p.flash_status && p.flash_status !== "สร้างรายการ" && (p.status === "draft" || p.status === "created"));
-      if (toFix.length > 0) {
-        for (const p of toFix) {
-          try { await sb.update("fx_parcels", p.id, { status: "printed" }); } catch {}
-        }
-        setParcels(prev => prev.map(x => toFix.find(f => f.id === x.id) ? { ...x, status: "printed" } : x));
-      }
+      // (เอา auto-fix ที่ดัน created→printed ออก — สถานะจะเป็น printed เฉพาะตอนกดปริ้น/เปลี่ยนเป็นปริ้นแล้วเท่านั้น)
     } catch {} setLoading(false);
   }, [isDemo, demoData, month]);
 
@@ -1394,10 +1387,7 @@ export default function FlashBackend() {
                 if (!parcel) continue;
                 const lastRoute = item.routes?.[0];
                 const updates = { flash_status: item.stateText || "", flash_detail: lastRoute?.message || "", flash_updated_at: new Date((item.stateChangeAt || 0) * 1000).toISOString() };
-                // ถ้า Flash รับแล้ว แต่สถานะระบบยังเป็น draft/created → อัพเดตเป็น printed
-                if (item.stateText && item.stateText !== "สร้างรายการ" && (parcel.status === "draft" || parcel.status === "created")) {
-                  updates.status = "printed";
-                }
+                // (ไม่ดัน status เป็น printed อัตโนมัติ — printed เฉพาะตอนกดปริ้นจริง)
                 setParcels(prev => prev.map(x => x.id === parcel.id ? { ...x, ...updates, flash_state: item.state } : x));
                 if (!isDemo) { try { await sb.update("fx_parcels", parcel.id, updates); } catch {} }
                 updated++;
