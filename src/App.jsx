@@ -1402,6 +1402,20 @@ export default function FlashBackend() {
     } finally { setFlashRefreshing(false); }
   };
 
+  // ═══ พัสดุค้างรับ "ทุกเดือน" — สำหรับเมนู "แฟลชยังไม่เข้ารับ" (มีเลขแล้วแต่ Flash ยังไม่สแกนรับเข้าระบบ) ═══
+  const [notInFlashAll, setNotInFlashAll] = useState([]);
+  const loadNotInFlash = useCallback(async () => {
+    if (isDemo) return;
+    try {
+      const enc = encodeURIComponent("สร้างรายการ");
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.eq.${enc})&order=created_at.desc`;
+      const res = await fetch(url, { headers: sb.headers() });
+      const data = await res.json();
+      if (Array.isArray(data)) setNotInFlashAll(data);
+    } catch {}
+  }, [isDemo]);
+  useEffect(() => { if (user && !isDemo) loadNotInFlash(); }, [user, loadNotInFlash]);
+
   // ═══ REALTIME — broadcast timestamp polling (เหมือน crmtel) ═══
   const lastTs = useRef("0");
   const mutating = useRef(false);
@@ -1414,6 +1428,7 @@ export default function FlashBackend() {
         const ts = rows?.[0]?.value || "0";
         if (ts !== lastTs.current && lastTs.current !== "0") {
           const pg = activePageRef.current;
+          loadNotInFlash();
           if (["parcels", "report", "dashboard"].includes(pg)) { loadParcels(); loadShops(); }
         }
         lastTs.current = ts;
@@ -2072,7 +2087,9 @@ export default function FlashBackend() {
 
   // ═══ แฟลชยังไม่เข้ารับ — พัสดุสร้างเลขแล้วแต่ Flash ยังไม่สแกนรับ ═══
   const NotInFlashPage = () => {
-    const list = useMemo(() => [...notInFlash].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)), [notInFlash]);
+    useEffect(() => { if (!isDemo) loadNotInFlash(); }, []);
+    const source = isDemo ? notInFlash : notInFlashAll;
+    const list = useMemo(() => [...source].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)), [source]);
     return (
       <div style={{ padding: 24 }}>
         <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
@@ -4000,7 +4017,7 @@ export default function FlashBackend() {
         {/* Menu */}
         <div style={{ flex: 1, padding: "12px 8px" }}>
           {MENU.map(m => {
-            const badge = (m.key === "parcels" || m.key === "notinflash") ? notInFlash.length : 0;
+            const badge = m.key === "parcels" ? notInFlash.length : m.key === "notinflash" ? (isDemo ? notInFlash.length : notInFlashAll.length) : 0;
             return (
             <button key={m.key} onClick={() => setActivePage(m.key)} style={{
               width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, marginBottom: 4,
