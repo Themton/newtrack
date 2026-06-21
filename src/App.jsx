@@ -3250,12 +3250,12 @@ export default function FlashBackend() {
       { key: "cancelled", label: "ยกเลิก", icon: "❌", color: "#dc2626" },
     ];
 
-    const filtered = useMemo(() => {
+    const filtered = (() => {
       let list = upsellData.filter(p => !p.parcel_created);
       if (upsellFilter !== "ALL") list = list.filter(p => p.status === upsellFilter);
       if (upsellSearch) { const q = upsellSearch.toLowerCase(); list = list.filter(p => [p.receiver_name, p.receiver_phone, p.remark].some(v => (v || "").toLowerCase().includes(q))); }
       return list;
-    }, [upsellData, upsellFilter, upsellSearch]);
+    })();
 
     // Import Excel
     const handleFile = async (file) => {
@@ -4301,7 +4301,7 @@ export default function FlashBackend() {
               </div>
             </div>
           )}
-          {activePage === "upsell" && <UpsellPage />}
+          {activePage === "upsell" && UpsellPage()}
           {activePage === "export" && <ExportPage />}
           {activePage === "shops" && <div style={{ padding: 24 }}><ShopManagement onClose={() => {}} onUpdate={loadShops} isDemo={isDemo} inline /></div>}
           {activePage === "users" && <div style={{ padding: 24 }}><UserManagement onClose={() => {}} isDemo={isDemo} inline /></div>}
