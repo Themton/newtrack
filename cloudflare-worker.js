@@ -25,8 +25,9 @@ const FLASH_ACCOUNTS = ENV === "training"
 // บัญชีเริ่มต้น (ใช้เมื่อ request ไม่ได้ระบุ mchId)
 const DEFAULT_MCH = ENV === "training" ? "CA5610" : "CBC9351";
 
-const BATCH = 200;
-const DELAY = 250;
+const BATCH = 500;        // จำนวนพัสดุที่เช็คต่อรอบ cron (เรียงอัปเดตเก่าสุดก่อน → หมุนครบทุกตัว)
+const DELAY = 250;        // (สำรองไว้ ไม่ได้ใช้แล้วหลังเปลี่ยนเป็นยิงขนาน)
+const CONCURRENCY = 6;    // ยิง getTracking พร้อมกันกี่ตัว
 
 async function flashSign(params, apiKey) {
   const keys = Object.keys(params).filter(k => k !== "sign" && params[k] !== "" && params[k] !== null && params[k] !== undefined).sort();
@@ -105,6 +106,15 @@ async function getTracking(pno, preferMchId) {
   return null;
 }
 
+// ยิงงานแบบขนานโดยจำกัดจำนวนพร้อมกัน (ไม่พึ่ง lib ภายนอก)
+async function mapLimit(items, limit, fn) {
+  let idx = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (idx < items.length) { const i = idx++; await fn(items[i]); }
+  });
+  await Promise.all(runners);
+}
+
 async function syncFlash() {
   const t0 = Date.now();
   let parcels = [];
@@ -112,7 +122,7 @@ async function syncFlash() {
     parcels = await sbQuery(
       "fx_parcels?select=id,flash_pno,flash_status,flash_detail,status,shop_id" +
       "&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled" +
-      "&order=created_at.desc", { range: "0-" + (BATCH - 1) }
+      "&order=flash_updated_at.asc.nullsfirst", { range: "0-" + (BATCH - 1) }
     ) || [];
   } catch (e) { return { ok: false, error: e.message, ms: Date.now() - t0 }; }
 
@@ -127,8 +137,7 @@ async function syncFlash() {
   let updated = 0, errors = 0;
   const updates = {};
 
-  for (let i = 0; i < parcels.length; i++) {
-    const p = parcels[i];
+  await mapLimit(parcels, CONCURRENCY, async (p) => {
     const mchId = shopMap[p.shop_id] || DEFAULT_MCH;
     try {
       const r = await getTracking(p.flash_pno, mchId);
@@ -144,8 +153,7 @@ async function syncFlash() {
         }
       }
     } catch { errors++; }
-    if (i < parcels.length - 1) await new Promise(r => setTimeout(r, DELAY));
-  }
+  });
 
   for (const key in updates) {
     const { status, detail, updatedAt } = JSON.parse(key);
