@@ -3324,6 +3324,7 @@ export default function FlashBackend() {
 
     // Import Excel
     const handleFile = async (file) => {
+      if (!upsellShop) { uiAlert("กรุณาเลือกร้านค้าก่อน Import (เลือกที่ดรอปดาวน์ \"🏪 เลือกร้านค้า\" ด้านขวา)"); return; }
       const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
       const ab = await file.arrayBuffer();
       const wb = XLSX.read(ab);
@@ -3538,7 +3539,7 @@ export default function FlashBackend() {
         {/* Import Section */}
         <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", marginBottom: 20, overflow: "hidden" }}>
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 12 }}>
-            <label style={{ padding: "10px 20px", background: "#f59e0b", color: "#fff", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📥 Import Excel
+            <label onClick={e => { if (!upsellShop) { e.preventDefault(); uiAlert("กรุณาเลือกร้านค้าก่อน Import (เลือกที่ดรอปดาวน์ \"🏪 เลือกร้านค้า\" ด้านขวา)"); } }} style={{ padding: "10px 20px", background: upsellShop ? "#f59e0b" : "#cbd5e1", color: "#fff", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: upsellShop ? "pointer" : "not-allowed" }}>📥 Import Excel
               <input type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ""; }} />
             </label>
             <button onClick={() => { downloadProShipTemplate("upsell-template.xlsx"); }} style={{ padding: "10px 20px", background: "#fff", color: "#f59e0b", border: "2px solid #f59e0b", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดตัวอย่าง</button>
@@ -3582,7 +3583,7 @@ export default function FlashBackend() {
         <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           <input value={upsellSearch} onChange={e => setUpsellSearch(e.target.value)} placeholder="🔍 ค้นหา ชื่อ, เบอร์..." style={{ ...I, flex: 1, minWidth: 150 }} />
           <button onClick={loadUpsell} style={{ ...I, cursor: "pointer" }}>🔄</button>
-          <select value={upsellShop} onChange={e => setUpsellShop(e.target.value)} style={{ ...I, minWidth: 140, fontWeight: 600, color: upsellShop ? "#1e293b" : "#94a3b8", background: upsellShop ? "#fef3c7" : "#fff" }}>
+          <select value={upsellShop} onChange={e => setUpsellShop(e.target.value)} style={{ ...I, minWidth: 140, fontWeight: 600, color: upsellShop ? "#1e293b" : "#dc2626", background: upsellShop ? "#fef3c7" : "#fef2f2", borderColor: upsellShop ? undefined : "#dc2626" }}>
             <option value="">🏪 เลือกร้านค้า</option>
             {(shops || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
