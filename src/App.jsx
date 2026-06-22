@@ -1285,7 +1285,8 @@ export default function FlashBackend() {
   const [codFilter, setCodFilter] = useState("");
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [notifSelected, setNotifSelected] = useState(new Set());
-  const [upsellShop, setUpsellShop] = useState("");
+  const [upsellShop, setUpsellShop] = useState(""); // ตัวกรองร้านค้าในตาราง
+  const [upsellImportShop, setUpsellImportShop] = useState(""); // ร้านค้าที่เลือกตอน Import
   const [upsellData, setUpsellData] = useState([]);
   const [upsellLoading, setUpsellLoading] = useState(true);
   const [upsellFilter, setUpsellFilter] = useState("ALL");
@@ -3317,6 +3318,7 @@ export default function FlashBackend() {
 
     const filtered = (() => {
       let list = upsellData.filter(p => !p.parcel_created);
+      if (upsellShop) list = list.filter(p => p.shop_id === upsellShop);
       if (upsellFilter !== "ALL") list = list.filter(p => p.status === upsellFilter);
       if (upsellSearch) { const q = upsellSearch.toLowerCase(); list = list.filter(p => [p.receiver_name, p.receiver_phone, p.remark].some(v => (v || "").toLowerCase().includes(q))); }
       return list;
@@ -3324,7 +3326,7 @@ export default function FlashBackend() {
 
     // Import Excel
     const handleFile = async (file) => {
-      if (!upsellShop) { uiAlert("กรุณาเลือกร้านค้าก่อน Import (เลือกที่ดรอปดาวน์ \"🏪 เลือกร้านค้า\" ด้านขวา)"); return; }
+      if (!upsellImportShop) { uiAlert("กรุณาเลือกร้านค้าสำหรับ Import ก่อน (ดรอปดาวน์ใต้ปุ่ม Import)"); return; }
       const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
       const ab = await file.arrayBuffer();
       const wb = XLSX.read(ab);
@@ -3403,7 +3405,7 @@ export default function FlashBackend() {
             sale_person: r.sale_person || "",
             sale_price: r.sale_price || 0,
             remark: r.remark || "",
-            cod_amount: r.cod_amount || 0, status: "pending",
+            cod_amount: r.cod_amount || 0, status: "pending", shop_id: upsellImportShop || null,
             created_by: user.id, created_by_name: user.display_name,
           });
           success++;
@@ -3426,7 +3428,7 @@ export default function FlashBackend() {
 
     const createParcelFromUpsell = async (item, shopOverride) => {
       try {
-        const shop = shopOverride || (upsellShop ? shops?.find(s => s.id === upsellShop) : null) || shops?.find(s => s.is_default) || shops?.[0];
+        const shop = shopOverride || (item.shop_id ? shops?.find(s => s.id === item.shop_id) : null) || (upsellShop ? shops?.find(s => s.id === upsellShop) : null) || shops?.find(s => s.is_default) || shops?.[0];
         if (!shop) { uiAlert("กรุณาเลือกร้านค้าก่อน"); return false; }
         const parcelData = {
           parcel_no: "P" + Date.now().toString(36).toUpperCase(),
@@ -3463,11 +3465,9 @@ export default function FlashBackend() {
     };
 
     const batchCreateParcels = async () => {
-      if (!upsellShop && shops?.length > 1) { uiAlert("กรุณาเลือกร้านค้าก่อนสร้างพัสดุ"); return; }
       const targets = upsellData.filter(p => p.status !== "success" && p.status !== "cancelled" && !p.parcel_created);
       if (!targets.length) { uiAlert("ไม่มีรายการที่ต้องสร้างพัสดุ"); return; }
-      const shop = upsellShop ? shops?.find(s => s.id === upsellShop) : shops?.find(s => s.is_default) || shops?.[0];
-      if (!await uiConfirm(`สร้างพัสดุ ${targets.length} รายการ?\nร้านค้า: ${shop?.name || "ค่าเริ่มต้น"}`)) return;
+      if (!await uiConfirm(`สร้างพัสดุ ${targets.length} รายการ?\n(ใช้ร้านค้าตามที่เลือกตอน Import ของแต่ละรายการ)`)) return;
       let success = 0;
       for (const item of targets) {
         try { await createParcelFromUpsell(item); success++; } catch {}
@@ -3539,7 +3539,7 @@ export default function FlashBackend() {
         {/* Import Section */}
         <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", marginBottom: 20, overflow: "hidden" }}>
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 12 }}>
-            <label onClick={e => { if (!upsellShop) { e.preventDefault(); uiAlert("กรุณาเลือกร้านค้าก่อน Import (เลือกที่ดรอปดาวน์ \"🏪 เลือกร้านค้า\" ด้านขวา)"); } }} style={{ padding: "10px 20px", background: upsellShop ? "#f59e0b" : "#cbd5e1", color: "#fff", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: upsellShop ? "pointer" : "not-allowed" }}>📥 Import Excel
+            <label onClick={e => { if (!upsellImportShop) { e.preventDefault(); uiAlert("กรุณาเลือกร้านค้าสำหรับ Import ก่อน (ดรอปดาวน์ด้านล่าง)"); } }} style={{ padding: "10px 20px", background: upsellImportShop ? "#f59e0b" : "#cbd5e1", color: "#fff", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: upsellImportShop ? "pointer" : "not-allowed" }}>📥 Import Excel
               <input type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ""; }} />
             </label>
             <button onClick={() => { downloadProShipTemplate("upsell-template.xlsx"); }} style={{ padding: "10px 20px", background: "#fff", color: "#f59e0b", border: "2px solid #f59e0b", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดตัวอย่าง</button>
@@ -3552,6 +3552,14 @@ export default function FlashBackend() {
               const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = `no-salesperson-${new Date().toISOString().slice(0,10)}.csv`; a.click();
             }} style={{ padding: "8px 14px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>⚠️ ดาวน์โหลด {upsellRejected.length} รายชื่อไม่มีแอดมิน</button>}
             {upsellRows.length > 0 && <button onClick={handleImport} disabled={upsellImporting} style={{ padding: "10px 20px", background: "#059669", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer" }}>{upsellImporting ? `กำลังนำเข้า ${upsellProgress}%` : `✅ นำเข้า ${upsellRows.filter(r => r._selected).length} รายการ`}</button>}
+          </div>
+          <div style={{ padding: "12px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: upsellImportShop ? "#fff" : "#fef2f2" }}>
+            <label style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>🏪 ร้านค้าสำหรับ Import: <span style={{ color: "#dc2626" }}>*</span></label>
+            <select value={upsellImportShop} onChange={e => setUpsellImportShop(e.target.value)} style={{ padding: "9px 14px", border: upsellImportShop ? "1.5px solid #e2e8f0" : "1.5px solid #dc2626", borderRadius: 10, fontSize: 13, fontFamily: "inherit", minWidth: 200, background: "#fff", fontWeight: 600 }}>
+              <option value="">-- เลือกร้านค้า --</option>
+              {(shops || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {!upsellImportShop && <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>⚠️ ต้องเลือกร้านค้าก่อน Import</span>}
           </div>
           {upsellRows.length > 0 && (
             <div style={{ maxHeight: 200, overflowY: "auto" }}>
@@ -3583,8 +3591,8 @@ export default function FlashBackend() {
         <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           <input value={upsellSearch} onChange={e => setUpsellSearch(e.target.value)} placeholder="🔍 ค้นหา ชื่อ, เบอร์..." style={{ ...I, flex: 1, minWidth: 150 }} />
           <button onClick={loadUpsell} style={{ ...I, cursor: "pointer" }}>🔄</button>
-          <select value={upsellShop} onChange={e => setUpsellShop(e.target.value)} style={{ ...I, minWidth: 140, fontWeight: 600, color: upsellShop ? "#1e293b" : "#dc2626", background: upsellShop ? "#fef3c7" : "#fef2f2", borderColor: upsellShop ? undefined : "#dc2626" }}>
-            <option value="">🏪 เลือกร้านค้า</option>
+          <select value={upsellShop} onChange={e => setUpsellShop(e.target.value)} title="กรองตามร้านค้า" style={{ ...I, minWidth: 140, fontWeight: 600, color: upsellShop ? "#1e293b" : "#64748b", background: upsellShop ? "#fef3c7" : "#fff" }}>
+            <option value="">🏪 ทุกร้าน (กรอง)</option>
             {(shops || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <button onClick={exportUpsell} style={{ padding: "9px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📤 Export ({upsellSelected.size > 0 ? `เลือก ${upsellSelected.size}` : filtered.length})</button>
@@ -3599,7 +3607,7 @@ export default function FlashBackend() {
               <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>✓ เลือก {upsellSelected.size} รายการ</span>
               <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending"); if (!targets.length) { uiAlert("ไม่มีรายการรอดำเนินการ"); return; } for (const t of targets) await updateStatus(t, "success"); setUpsellSelected(new Set()); }} style={{ padding: "7px 14px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>✅ สำเร็จ ({upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending").length})</button>
               <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending"); if (!targets.length) { uiAlert("ไม่มีรายการรอดำเนินการ"); return; } for (const t of targets) await updateStatus(t, "cancelled"); setUpsellSelected(new Set()); }} style={{ padding: "7px 14px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>❌ ยกเลิก ({upsellData.filter(p => upsellSelected.has(p.id) && p.status === "pending").length})</button>
-              <button onClick={async () => { if (!upsellShop && shops?.length > 1) { uiAlert("กรุณาเลือกร้านค้าก่อนสร้างพัสดุ"); return; } const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created); if (!targets.length) { uiAlert("ไม่มีรายการที่สร้างพัสดุได้"); return; } const shop = upsellShop ? shops?.find(s => s.id === upsellShop) : shops?.find(s => s.is_default) || shops?.[0]; if (!await uiConfirm(`สร้างพัสดุ ${targets.length} รายการ?\nร้านค้า: ${shop?.name || "ค่าเริ่มต้น"}`)) return; for (const t of targets) { try { await createParcelFromUpsell(t); } catch {} } setUpsellSelected(new Set()); showToast(`สร้างพัสดุ ${targets.length} รายการ`); loadParcels(); }} style={{ padding: "7px 14px", background: "#4f46e5", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>📦 สร้างพัสดุ ({upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created).length})</button>
+              <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created); if (!targets.length) { uiAlert("ไม่มีรายการที่สร้างพัสดุได้"); return; } if (!await uiConfirm(`สร้างพัสดุ ${targets.length} รายการ?\n(ใช้ร้านค้าตามที่เลือกตอน Import)`)) return; for (const t of targets) { try { await createParcelFromUpsell(t); } catch {} } setUpsellSelected(new Set()); showToast(`สร้างพัสดุ ${targets.length} รายการ`); loadParcels(); }} style={{ padding: "7px 14px", background: "#4f46e5", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>📦 สร้างพัสดุ ({upsellData.filter(p => upsellSelected.has(p.id) && p.status !== "success" && p.status !== "cancelled" && !p.parcel_created).length})</button>
               {perm.delete && <button onClick={async () => { const targets = upsellData.filter(p => upsellSelected.has(p.id)); if (!targets.length) return; if (!await uiConfirm(`ลบ ${targets.length} รายการ upsell?\n\n⚠️ ลบถาวร กู้คืนไม่ได้`)) return; let n = 0; for (const t of targets) { try { if (!isDemo) await sb.delete("fx_upsell", t.id); n++; } catch {} } setUpsellSelected(new Set()); await loadUpsell(); showToast(`ลบแล้ว ${n} รายการ`); }} style={{ padding: "7px 14px", background: "#b91c1c", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🗑️ ลบ ({upsellSelected.size})</button>}
               <button onClick={() => setUpsellSelected(new Set())} style={{ padding: "7px 12px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>✕ ยกเลิก</button>
             </div>
