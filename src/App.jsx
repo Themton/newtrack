@@ -759,6 +759,11 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
         const rowText = row.map(String).join("|").toLowerCase();
         if (filledCols >= 3 && (rowText.includes("mobile") || rowText.includes("name") || rowText.includes("ชื่อ"))) { headerIdx = i; break; }
       }
+      // map คอลัมน์ที่ตำแหน่งไม่คงที่ด้วยชื่อหัวคอลัมน์ (รองรับทั้งเทมเพลต ProShip และไฟล์ export ของระบบ)
+      const hdr = (data[headerIdx] || []).map(h => String(h || "").toLowerCase());
+      const findCol = (...keys) => hdr.findIndex(h => keys.some(k => h.includes(k)));
+      const idxProduct = findCol("producttype", "ประเภทสินค้า");
+      const idxChannel = findCol("saleschannel", "ช่องทางจำหน่าย");
       const parsed = [];
       for (let i = headerIdx + 1; i < data.length; i++) {
         const r = data[i];
@@ -801,7 +806,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
           cod_enabled: codAmount > 0,
           cod_amount: codAmount,
           customer_fb_line: String(r[6] || ""),
-          item_desc: String(r[7] || ""),
+          item_desc: String(idxProduct >= 0 && r[idxProduct] ? r[idxProduct] : (idxChannel >= 0 ? r[idxChannel] : r[7]) || ""),
           sale_person: String(r[8] || ""),
           sale_price: parseFloat(r[9]) || 0,
           remark: remark,
@@ -3328,6 +3333,10 @@ export default function FlashBackend() {
         const rowText = row.map(String).join("|").toLowerCase();
         if (filledCols >= 3 && (rowText.includes("mobile") || rowText.includes("name") || rowText.includes("ชื่อ"))) { headerIdx = i; break; }
       }
+      const hdr = (data[headerIdx] || []).map(h => String(h || "").toLowerCase());
+      const findCol = (...keys) => hdr.findIndex(h => keys.some(k => h.includes(k)));
+      const idxProduct = findCol("producttype", "ประเภทสินค้า");
+      const idxChannel = findCol("saleschannel", "ช่องทางจำหน่าย");
       const parsed = [];
       for (let i = headerIdx + 1; i < data.length; i++) {
         const r = data[i];
@@ -3356,7 +3365,7 @@ export default function FlashBackend() {
           receiver_name: name, receiver_address: address,
           receiver_subdistrict: autoSubdistrict, receiver_district: autoDistrict,
           receiver_province: province, receiver_postal: postal,
-          customer_fb_line: String(r[6] || ""), item_desc: String(r[7] || ""),
+          customer_fb_line: String(r[6] || ""), item_desc: String(idxProduct >= 0 && r[idxProduct] ? r[idxProduct] : (idxChannel >= 0 ? r[idxChannel] : r[7]) || ""),
           sale_person: String(r[8] || ""), sale_price: parseFloat(r[9]) || 0,
           cod_enabled: codAmount > 0, cod_amount: codAmount,
           remark: remark, _selected: true,
