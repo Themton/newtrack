@@ -1,4 +1,4 @@
-// ===== Flash Proxy + Auto-Sync Worker v3.0 (trackmt) =====
+// ===== Flash Proxy + Auto-Sync Worker v3.1 (trackmt) =====
 // Flash API Proxy + Supabase Proxy + Auto-Sync สถานะ Flash (รองรับ 1000+ ออเดอร์/วัน)
 
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
@@ -121,8 +121,18 @@ async function syncFlash() {
     ) || [];
   } catch (e) { return { ok: false, error: e.message, ms: Date.now() - t0 }; }
 
+  const nowIso = new Date().toISOString();
+
+  // ตัวที่ "ส่งถึงแล้ว" (DONE) ไม่ต้องยิง Flash ซ้ำ — แต่ต้องประทับเวลาให้หลุดจากหัวคิว
+  // (ไม่งั้นมันค้าง flash_checked_at = null อยู่หัวคิวตลอด กิน budget จนตัว in_transit ไม่ได้เช็ก)
+  const doneIds = parcels.filter(p => p.flash_pno && DONE.includes(p.flash_status)).map(p => p.id);
+  for (let i = 0; i < doneIds.length; i += 100) {
+    const c = doneIds.slice(i, i + 100);
+    try { await sbQuery("fx_parcels?id=in.(" + c.join(",") + ")", { method: "PATCH", body: { flash_checked_at: nowIso }, prefer: "return=minimal" }); } catch {}
+  }
+
   parcels = parcels.filter(p => p.flash_pno && !DONE.includes(p.flash_status));
-  if (!parcels.length) return { ok: true, version: "v3.0", checked: 0, updated: 0, errors: 0, ms: Date.now() - t0 };
+  if (!parcels.length) return { ok: true, version: "v3.1", checked: 0, updated: 0, errors: 0, stamped_done: doneIds.length, ms: Date.now() - t0 };
 
   let shops = [];
   try { shops = await sbQuery("fx_shops?select=id,flash_mch_id") || []; } catch {}
@@ -130,7 +140,6 @@ async function syncFlash() {
   shops.forEach(s => { shopMap[s.id] = s.flash_mch_id; });
 
   let updated = 0, errors = 0;
-  const nowIso = new Date().toISOString();
 
   // 2) ประมวลผลเป็นก้อน ก้อนละ CONCURRENCY ตัว ยิงพร้อมกัน
   for (let i = 0; i < parcels.length; i += CONCURRENCY) {
@@ -180,7 +189,7 @@ async function syncFlash() {
   }
 
   if (updated > 0) await broadcastChange();
-  return { ok: true, version: "v3.0", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
+  return { ok: true, version: "v3.1", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
 }
 
 export default {
@@ -199,7 +208,7 @@ export default {
     const url = new URL(req.url);
     const json = (data, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-    if (url.pathname === "/") return json({ status: "ok", version: "v3.0", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
+    if (url.pathname === "/") return json({ status: "ok", version: "v3.1", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
     if (url.pathname === "/sync") return json(await syncFlash());
 
     if (url.pathname === "/test") {
