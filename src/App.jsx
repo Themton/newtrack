@@ -759,6 +759,11 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
         const rowText = row.map(String).join("|").toLowerCase();
         if (filledCols >= 3 && (rowText.includes("mobile") || rowText.includes("name") || rowText.includes("ชื่อ"))) { headerIdx = i; break; }
       }
+      // map คอลัมน์ที่ตำแหน่งไม่คงที่ด้วยชื่อหัวคอลัมน์ (รองรับทั้งเทมเพลต ProShip และไฟล์ export ของระบบ)
+      const hdr = (data[headerIdx] || []).map(h => String(h || "").toLowerCase());
+      const findCol = (...keys) => hdr.findIndex(h => keys.some(k => h.includes(k)));
+      const idxProduct = findCol("producttype", "ประเภทสินค้า");
+      const idxChannel = findCol("saleschannel", "ช่องทางจำหน่าย");
       const parsed = [];
       for (let i = headerIdx + 1; i < data.length; i++) {
         const r = data[i];
@@ -801,7 +806,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
           cod_enabled: codAmount > 0,
           cod_amount: codAmount,
           customer_fb_line: String(r[6] || ""),
-          item_desc: String(r[7] || ""),
+          item_desc: String(idxProduct >= 0 && r[idxProduct] ? r[idxProduct] : (idxChannel >= 0 ? r[idxChannel] : r[7]) || ""),
           sale_person: String(r[8] || ""),
           sale_price: parseFloat(r[9]) || 0,
           remark: remark,
@@ -2299,6 +2304,20 @@ export default function FlashBackend() {
     }
     const days = Object.keys(byDay).sort().reverse();
 
+    // แยกตามวัน × ร้านค้า (วันต่อวัน — ร้านค้า × สถานะ)
+    const byDayShop = {};
+    for (const p of data) {
+      const d = p.created_at?.slice(0, 10) || todayStr;
+      const sid = p.shop_id || "none";
+      if (!byDayShop[d]) byDayShop[d] = {};
+      if (!byDayShop[d][sid]) byDayShop[d][sid] = { total: 0, delivered: 0, returned: 0, cod: 0, codDelivered: 0 };
+      const cell = byDayShop[d][sid];
+      cell.total++;
+      if (matchSt(p.flash_status, "delivered")) { cell.delivered++; if (p.cod_enabled) cell.codDelivered += Number(p.cod_amount || 0); }
+      if (matchSt(p.flash_status, "returned")) cell.returned++;
+      if (p.cod_enabled) cell.cod += Number(p.cod_amount || 0);
+    }
+
     const C = (bg, color, icon, label, value) => (
       <div style={{ background: bg, borderRadius: 14, padding: "16px 20px", flex: 1, minWidth: 140 }}>
         <div style={{ fontSize: 12, color, opacity: .7, marginBottom: 4 }}>{icon} {label}</div>
@@ -2407,6 +2426,48 @@ export default function FlashBackend() {
                     <td style={{ padding: "10px 14px", color: "#c2410c" }}>฿{s.cod.toLocaleString()}</td>
                   </tr>
                 );
+              })}</tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ตารางวันต่อวัน — แยกร้านค้า × สถานะ */}
+        {summaryPeriod !== "daily" && days.length > 0 && (
+          <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e5e7eb", overflow: "hidden", marginTop: 24 }}>
+            <div style={{ padding: "14px 20px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb", fontWeight: 800, fontSize: 15 }}>📅 วันต่อวัน — แยกร้านค้า × สถานะ <span style={{ fontWeight: 400, fontSize: 12, color: "#9ca3af" }}>(แต่ละวันแตกตามร้านค้า)</span></div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr style={{ background: "#f9fafb" }}>
+                {["วันที่ / ร้านค้า", "สร้าง", "สำเร็จ", "ตีกลับ", "อัตราสำเร็จ", "COD", "COD เก็บแล้ว"].map(h => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#6b7280", fontSize: 12 }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{days.flatMap(d => {
+                const dayTot = byDay[d];
+                const shopsOfDay = Object.entries(byDayShop[d] || {}).sort((a, b) => b[1].total - a[1].total);
+                const rows = [
+                  <tr key={d + "_head"} style={{ background: d === todayStr ? "#dbeafe" : "#eef2ff", borderTop: "2px solid #e5e7eb" }}>
+                    <td style={{ padding: "9px 14px", fontWeight: 800, color: "#1e293b" }}>📅 {new Date(d).toLocaleDateString("th-TH", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</td>
+                    <td style={{ padding: "9px 14px", fontWeight: 800 }}>{dayTot.total}</td>
+                    <td style={{ padding: "9px 14px", fontWeight: 800, color: "#059669" }}>{dayTot.delivered}</td>
+                    <td style={{ padding: "9px 14px", fontWeight: 800, color: "#dc2626" }}>{dayTot.returned}</td>
+                    <td style={{ padding: "9px 14px", fontWeight: 800 }}>{dayTot.total > 0 ? ((dayTot.delivered / dayTot.total) * 100).toFixed(1) : 0}%</td>
+                    <td style={{ padding: "9px 14px", fontWeight: 800, color: "#c2410c" }}>฿{dayTot.cod.toLocaleString()}</td>
+                    <td style={{ padding: "9px 14px" }}></td>
+                  </tr>
+                ];
+                for (const [sid, s] of shopsOfDay) {
+                  const shop = shops?.find(sh => sh.id === sid);
+                  rows.push(
+                    <tr key={d + "_" + sid} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                      <td style={{ padding: "8px 14px 8px 34px", color: "#374151" }}>🏪 {shop?.name || "ไม่ระบุ"}</td>
+                      <td style={{ padding: "8px 14px" }}>{s.total}</td>
+                      <td style={{ padding: "8px 14px", color: "#059669", fontWeight: 700 }}>{s.delivered}</td>
+                      <td style={{ padding: "8px 14px", color: "#dc2626", fontWeight: 700 }}>{s.returned}</td>
+                      <td style={{ padding: "8px 14px", fontWeight: 700 }}>{s.total > 0 ? ((s.delivered / s.total) * 100).toFixed(1) : 0}%</td>
+                      <td style={{ padding: "8px 14px", color: "#c2410c" }}>฿{s.cod.toLocaleString()}</td>
+                      <td style={{ padding: "8px 14px", color: "#15803d", fontWeight: 700 }}>฿{s.codDelivered.toLocaleString()}</td>
+                    </tr>
+                  );
+                }
+                return rows;
               })}</tbody>
             </table>
           </div>
@@ -3250,12 +3311,12 @@ export default function FlashBackend() {
       { key: "cancelled", label: "ยกเลิก", icon: "❌", color: "#dc2626" },
     ];
 
-    const filtered = useMemo(() => {
+    const filtered = (() => {
       let list = upsellData.filter(p => !p.parcel_created);
       if (upsellFilter !== "ALL") list = list.filter(p => p.status === upsellFilter);
       if (upsellSearch) { const q = upsellSearch.toLowerCase(); list = list.filter(p => [p.receiver_name, p.receiver_phone, p.remark].some(v => (v || "").toLowerCase().includes(q))); }
       return list;
-    }, [upsellData, upsellFilter, upsellSearch]);
+    })();
 
     // Import Excel
     const handleFile = async (file) => {
@@ -3272,6 +3333,10 @@ export default function FlashBackend() {
         const rowText = row.map(String).join("|").toLowerCase();
         if (filledCols >= 3 && (rowText.includes("mobile") || rowText.includes("name") || rowText.includes("ชื่อ"))) { headerIdx = i; break; }
       }
+      const hdr = (data[headerIdx] || []).map(h => String(h || "").toLowerCase());
+      const findCol = (...keys) => hdr.findIndex(h => keys.some(k => h.includes(k)));
+      const idxProduct = findCol("producttype", "ประเภทสินค้า");
+      const idxChannel = findCol("saleschannel", "ช่องทางจำหน่าย");
       const parsed = [];
       for (let i = headerIdx + 1; i < data.length; i++) {
         const r = data[i];
@@ -3300,7 +3365,7 @@ export default function FlashBackend() {
           receiver_name: name, receiver_address: address,
           receiver_subdistrict: autoSubdistrict, receiver_district: autoDistrict,
           receiver_province: province, receiver_postal: postal,
-          customer_fb_line: String(r[6] || ""), item_desc: String(r[7] || ""),
+          customer_fb_line: String(r[6] || ""), item_desc: String(idxProduct >= 0 && r[idxProduct] ? r[idxProduct] : (idxChannel >= 0 ? r[idxChannel] : r[7]) || ""),
           sale_person: String(r[8] || ""), sale_price: parseFloat(r[9]) || 0,
           cod_enabled: codAmount > 0, cod_amount: codAmount,
           remark: remark, _selected: true,
@@ -4301,7 +4366,7 @@ export default function FlashBackend() {
               </div>
             </div>
           )}
-          {activePage === "upsell" && <UpsellPage />}
+          {activePage === "upsell" && UpsellPage()}
           {activePage === "export" && <ExportPage />}
           {activePage === "shops" && <div style={{ padding: 24 }}><ShopManagement onClose={() => {}} onUpdate={loadShops} isDemo={isDemo} inline /></div>}
           {activePage === "users" && <div style={{ padding: 24 }}><UserManagement onClose={() => {}} isDemo={isDemo} inline /></div>}
