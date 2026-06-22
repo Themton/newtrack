@@ -584,6 +584,7 @@ function parseThaiAddress(raw) {
 // ═══════════════════════════════════════════════════════════════
 function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) {
   const isEdit = !!parcel?.id;
+  const locked = isEdit && !!parcel?.flash_pno; // สร้างเลขพัสดุแล้ว → ห้ามแก้ที่อยู่ + COD
   const [form, setForm] = useState(parcel || { sender_name: "", sender_phone: "", sender_address: "", sender_province: "", receiver_name: "", receiver_phone: "", receiver_address: "", receiver_province: "", receiver_district: "", receiver_subdistrict: "", receiver_postal: "", weight: 1, item_desc: "", sale_person: "", sale_price: 0, customer_fb_line: "", quantity: 1, cod_enabled: false, cod_amount: 0, remark: "" });
   const [saving, setSaving] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
@@ -624,12 +625,12 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
   const handleSave = async () => {
     if (!form.receiver_name || !form.receiver_phone) { uiAlert("กรุณากรอกชื่อ+เบอร์ผู้รับ"); return; }
     setSaving(true);
-    try { const d = { ...form }; delete d.id; delete d.created_at; delete d.updated_at; if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
+    try { const d = { ...form }; delete d.id; delete d.created_at; delete d.updated_at; if (locked) { ["receiver_address", "receiver_subdistrict", "receiver_district", "receiver_province", "receiver_postal", "cod_enabled", "cod_amount"].forEach(key => delete d[key]); } if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
     setSaving(false);
   };
   const I = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
   const L = { display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 };
-  const F = ({ label, k, ph, type = "text", span }) => <div style={{ gridColumn: span ? `span ${span}` : undefined }}><label style={L}>{label}</label><input type={type} value={form[k] || ""} onChange={e => set(k, type === "number" ? +e.target.value : e.target.value)} placeholder={ph} style={I} /></div>;
+  const F = ({ label, k, ph, type = "text", span, disabled }) => <div style={{ gridColumn: span ? `span ${span}` : undefined }}><label style={L}>{label}</label><input type={type} value={form[k] || ""} onChange={e => set(k, type === "number" ? +e.target.value : e.target.value)} placeholder={ph} disabled={disabled} style={{ ...I, ...(disabled ? { background: "#f1f5f9", color: "#94a3b8", cursor: "not-allowed" } : {}) }} /></div>;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 30, overflowY: "auto" }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: "95%", maxWidth: 680, marginBottom: 40, overflow: "hidden" }}>
@@ -638,6 +639,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
           <button onClick={onClose} style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: 10, fontSize: 18, cursor: "pointer" }}>✕</button>
         </div>
         <div style={{ padding: 24, maxHeight: "70vh", overflowY: "auto" }}>
+          {locked && <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, fontSize: 13, color: "#b91c1c", fontWeight: 600 }}>🔒 พัสดุนี้สร้างเลขแล้ว ({parcel.flash_pno}) — แก้ไขที่อยู่และ COD ไม่ได้</div>}
           {/* ═══ เลือกร้านค้า ═══ */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🏪 ร้านค้า / ผู้ส่ง</h3>
@@ -658,7 +660,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
           {/* ═══ ผู้รับ + ปุ่มวางที่อยู่ ═══ */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>📥 ผู้รับ</h3>
-            <button onClick={() => setPasteMode(!pasteMode)} style={{ padding: "6px 14px", background: pasteMode ? "#dc2626" : "#eef2ff", color: pasteMode ? "#fff" : "#4f46e5", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+            <button onClick={() => setPasteMode(!pasteMode)} disabled={locked} style={{ padding: "6px 14px", background: locked ? "#e5e7eb" : pasteMode ? "#dc2626" : "#eef2ff", color: locked ? "#9ca3af" : pasteMode ? "#fff" : "#4f46e5", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: locked ? "not-allowed" : "pointer" }}>
               {pasteMode ? "✕ ปิด" : "📋 วางที่อยู่อัตโนมัติ"}
             </button>
           </div>
@@ -673,10 +675,10 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
             <F label="ชื่อ *" k="receiver_name" ph="ชื่อ" /><F label="เบอร์ *" k="receiver_phone" ph="08X..." />
-            <F label="ที่อยู่" k="receiver_address" ph="ที่อยู่" span={2} />
+            <F label="ที่อยู่" k="receiver_address" ph="ที่อยู่" span={2} disabled={locked} />
             <div style={{ gridColumn: "span 2" }}>
               <label style={L}>รหัสไปรษณีย์ (พิมพ์แล้วเติมที่อยู่อัตโนมัติ)</label>
-              <input value={form.receiver_postal || ""} onChange={e => {
+              <input value={form.receiver_postal || ""} disabled={locked} onChange={e => {
                 const v = e.target.value.replace(/\D/g, "").slice(0, 5);
                 set("receiver_postal", v);
                 if (v.length === 5 && ADDR_DB[v]) {
@@ -686,8 +688,8 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
                     setForm(f => ({ ...f, receiver_postal: v, receiver_province: list[0].p, receiver_district: list[0].d, receiver_subdistrict: list[0].s }));
                   }
                 }
-              }} placeholder="XXXXX → เติมจังหวัด อำเภอ ตำบล อัตโนมัติ" style={{ ...I, borderColor: "#6366f1", fontWeight: 600 }} />
-              {form.receiver_postal?.length === 5 && ADDR_DB[form.receiver_postal]?.length > 1 && (
+              }} placeholder="XXXXX → เติมจังหวัด อำเภอ ตำบล อัตโนมัติ" style={{ ...I, borderColor: "#6366f1", fontWeight: 600, ...(locked ? { background: "#f1f5f9", color: "#94a3b8", cursor: "not-allowed", borderColor: "#e2e8f0" } : {}) }} />
+              {!locked && form.receiver_postal?.length === 5 && ADDR_DB[form.receiver_postal]?.length > 1 && (
                 <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {ADDR_DB[form.receiver_postal].map((a, i) => (
                     <button key={i} onClick={() => setForm(f => ({ ...f, receiver_province: a.p, receiver_district: a.d, receiver_subdistrict: a.s }))}
@@ -698,8 +700,8 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
                 </div>
               )}
             </div>
-            <F label="ตำบล" k="receiver_subdistrict" ph="ตำบล" /><F label="อำเภอ" k="receiver_district" ph="อำเภอ" />
-            <div><label style={L}>จังหวัด</label><select value={form.receiver_province || ""} onChange={e => set("receiver_province", e.target.value)} style={{ ...I, background: "#fff" }}><option value="">--</option>{PROVINCES.map(p => <option key={p}>{p}</option>)}</select></div>
+            <F label="ตำบล" k="receiver_subdistrict" ph="ตำบล" disabled={locked} /><F label="อำเภอ" k="receiver_district" ph="อำเภอ" disabled={locked} />
+            <div><label style={L}>จังหวัด</label><select value={form.receiver_province || ""} disabled={locked} onChange={e => set("receiver_province", e.target.value)} style={{ ...I, background: locked ? "#f1f5f9" : "#fff", ...(locked ? { color: "#94a3b8", cursor: "not-allowed" } : {}) }}><option value="">--</option>{PROVINCES.map(p => <option key={p}>{p}</option>)}</select></div>
           </div>
           <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700 }}>📦 พัสดุ</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
@@ -713,10 +715,10 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
             <F label="📱 FB / Line ลูกค้า" k="customer_fb_line" ph="ชื่อ FB หรือ Line ของลูกค้า" span={3} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>💰 COD</h3>
-            <div onClick={() => set("cod_enabled", !form.cod_enabled)} style={{ width: 44, height: 24, borderRadius: 12, background: form.cod_enabled ? "#059669" : "#d1d5db", cursor: "pointer", position: "relative" }}><div style={{ width: 20, height: 20, borderRadius: 10, background: "#fff", position: "absolute", top: 2, left: form.cod_enabled ? 22 : 2, transition: ".2s" }} /></div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>💰 COD {locked && <span style={{ fontSize: 12, fontWeight: 600, color: "#b91c1c" }}>🔒</span>}</h3>
+            <div onClick={() => { if (!locked) set("cod_enabled", !form.cod_enabled); }} style={{ width: 44, height: 24, borderRadius: 12, background: form.cod_enabled ? "#059669" : "#d1d5db", cursor: locked ? "not-allowed" : "pointer", position: "relative", opacity: locked ? 0.6 : 1 }}><div style={{ width: 20, height: 20, borderRadius: 10, background: "#fff", position: "absolute", top: 2, left: form.cod_enabled ? 22 : 2, transition: ".2s" }} /></div>
           </div>
-          {form.cod_enabled && <F label="จำนวนเงิน (บาท)" k="cod_amount" type="number" />}
+          {form.cod_enabled && <F label="จำนวนเงิน (บาท)" k="cod_amount" type="number" disabled={locked} />}
           <div style={{ marginTop: 16 }}><label style={L}>หมายเหตุ</label><textarea value={form.remark || ""} onChange={e => set("remark", e.target.value)} rows={2} style={{ ...I, resize: "vertical" }} /></div>
         </div>
         <div style={{ padding: "16px 24px", borderTop: "1px solid #f1f5f9", display: "flex", gap: 10 }}>
