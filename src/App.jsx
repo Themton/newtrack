@@ -754,7 +754,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
   const [done, setDone] = useState(false);
   const [importFailed, setImportFailed] = useState([]);
   const [importTotal, setImportTotal] = useState(0);
-  const [selectedShop, setSelectedShop] = useState(shops?.find(s => s.is_default)?.id || shops?.[0]?.id || "");
+  const [selectedShop, setSelectedShop] = useState(""); // บังคับเลือกร้านเองก่อน import
   const fileRef = useRef();
 
   const handleFile = async (e) => {
@@ -839,6 +839,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
   const handleImport = async () => {
     const selected = rows.filter(r => r._selected);
     if (!selected.length) { uiAlert("ไม่มีรายการที่เลือก"); return; }
+    if (!selectedShop) { uiAlert("กรุณาเลือกร้านค้าก่อนนำเข้า"); return; }
     const shop = shops?.find(s => s.id === selectedShop);
     setImporting(true);
     setImportTotal(selected.length);
@@ -923,9 +924,10 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
           </div>
         </div>
       )}
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center" }}>
-        <label style={{ fontSize: 13, fontWeight: 600 }}>🏪 ร้านผู้ส่ง:</label>
-        <select value={selectedShop} onChange={e => setSelectedShop(e.target.value)} style={{ padding: "8px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit", minWidth: 200 }}><option value="">--</option>{shops?.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>🏪 ร้านผู้ส่ง: <span style={{ color: "#dc2626" }}>*</span></label>
+        <select value={selectedShop} onChange={e => setSelectedShop(e.target.value)} style={{ padding: "8px 14px", border: selectedShop ? "1.5px solid #e2e8f0" : "1.5px solid #dc2626", borderRadius: 10, fontSize: 13, fontFamily: "inherit", minWidth: 200, background: selectedShop ? "#fff" : "#fef2f2" }}><option value="">-- เลือกร้านค้า --</option>{shops?.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        {!selectedShop && <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>⚠️ ต้องเลือกร้านค้าก่อนนำเข้า</span>}
       </div>
       {rows.length === 0 && !importing && (<>
         <div onClick={() => fileRef.current?.click()} style={{ border: "2px dashed #d1d5db", borderRadius: 16, padding: 50, textAlign: "center", cursor: "pointer", background: "#fff" }}>
@@ -961,7 +963,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
           </div>
         )}
         <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 12, background: "#fff" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}><thead><tr style={{ background: "#f8fafc" }}><th style={{ padding: 8, width: 30 }}>✓</th><th style={{ padding: 8, textAlign: "left" }}>ชื่อ</th><th style={{ padding: 8, textAlign: "left" }}>เบอร์</th><th style={{ padding: 8, textAlign: "left" }}>อำเภอ</th><th style={{ padding: 8, textAlign: "right" }}>COD</th></tr></thead><tbody>{rows.map((r, i) => <tr key={i} style={{ borderTop: "1px solid #f1f5f9", opacity: r._selected ? 1 : .4 }}><td style={{ padding: 8, textAlign: "center" }}><input type="checkbox" checked={r._selected} onChange={() => toggleRow(i)} /></td><td style={{ padding: 8, fontWeight: 600 }}>{r.receiver_name}</td><td style={{ padding: 8, fontFamily: "monospace" }}>{r.receiver_phone}</td><td style={{ padding: 8 }}>{r.receiver_district}</td><td style={{ padding: 8, textAlign: "right", fontWeight: 600, color: r.cod_amount > 0 ? "#d97706" : "#cbd5e1" }}>{r.cod_amount > 0 ? `฿${r.cod_amount}` : "—"}</td></tr>)}</tbody></table></div>
-        <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button onClick={handleImport} style={{ flex: 1, padding: 14, background: "#059669", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>📥 นำเข้า {rows.filter(r => r._selected).length} รายการ</button><button onClick={() => setRows([])} style={{ padding: "14px 20px", background: "#f1f5f9", border: "none", borderRadius: 12, fontWeight: 600, cursor: "pointer" }}>เลือกไฟล์ใหม่</button></div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button onClick={handleImport} disabled={!selectedShop} style={{ flex: 1, padding: 14, background: selectedShop ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: selectedShop ? "pointer" : "not-allowed" }}>📥 นำเข้า {rows.filter(r => r._selected).length} รายการ</button><button onClick={() => setRows([])} style={{ padding: "14px 20px", background: "#f1f5f9", border: "none", borderRadius: 12, fontWeight: 600, cursor: "pointer" }}>เลือกไฟล์ใหม่</button></div>
       </>)}
       {importing && <div style={{ padding: 40, textAlign: "center" }}>
         <div style={{ fontSize: 40 }}>{done ? (importFailed.length > 0 ? "⚠️" : "✅") : "⏳"}</div>
@@ -990,11 +992,12 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
         <div style={{ padding: 24, maxHeight: inline ? "none" : "75vh", overflowY: "auto" }}>
           {/* เลือกร้าน */}
           <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>🏪 ร้านผู้ส่ง:</label>
-            <select value={selectedShop} onChange={e => setSelectedShop(e.target.value)} style={{ padding: "8px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit", flex: 1, minWidth: 150 }}>
-              <option value="">-- เลือกร้าน --</option>
+            <label style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>🏪 ร้านผู้ส่ง: <span style={{ color: "#dc2626" }}>*</span></label>
+            <select value={selectedShop} onChange={e => setSelectedShop(e.target.value)} style={{ padding: "8px 14px", border: selectedShop ? "1.5px solid #e2e8f0" : "1.5px solid #dc2626", borderRadius: 10, fontSize: 13, fontFamily: "inherit", flex: 1, minWidth: 150, background: selectedShop ? "#fff" : "#fef2f2" }}>
+              <option value="">-- เลือกร้านค้า --</option>
               {shops?.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+            {!selectedShop && <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>⚠️ ต้องเลือกร้านค้าก่อนนำเข้า</span>}
           </div>
 
           {/* เลือกไฟล์ */}
@@ -1064,7 +1067,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
         </div>
         {rows.length > 0 && !importing && (
           <div style={{ padding: "16px 24px", borderTop: "1px solid #f1f5f9", display: "flex", gap: 10 }}>
-            <button onClick={handleImport} disabled={!rows.some(r => r._selected)} style={{ flex: 1, padding: 14, background: rows.some(r => r._selected) ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>📥 นำเข้า {rows.filter(r => r._selected).length} รายการ</button>
+            <button onClick={handleImport} disabled={!rows.some(r => r._selected) || !selectedShop} style={{ flex: 1, padding: 14, background: (rows.some(r => r._selected) && selectedShop) ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: (rows.some(r => r._selected) && selectedShop) ? "pointer" : "not-allowed" }}>📥 นำเข้า {rows.filter(r => r._selected).length} รายการ</button>
             <button onClick={() => { setRows([]); }} style={{ padding: "14px 20px", background: "#f1f5f9", border: "none", borderRadius: 12, fontWeight: 600, cursor: "pointer" }}>เลือกไฟล์ใหม่</button>
             <button onClick={onClose} style={{ padding: "14px 20px", background: "#f1f5f9", border: "none", borderRadius: 12, fontWeight: 600, cursor: "pointer" }}>ยกเลิก</button>
           </div>
