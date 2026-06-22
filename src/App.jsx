@@ -729,6 +729,21 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
 }
 
 // ═══════════════════════════════════════════════════════════════
+// IMPORT TEMPLATE (ProShip) — ไฟล์ตัวอย่างให้โหลดไปกรอกแล้ว import กลับ
+// ═══════════════════════════════════════════════════════════════
+async function downloadProShipTemplate(filename = "import-template.xlsx") {
+  const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+  const note = ["ช่องสีแดงต้องกรอก ช่องสีขาวไม่จำเป็น\nอำเภอ จังหวัด หากสกดผิด ระบบจะไม่นำเข้าให้\nเบอร์มือถือ ต้องครบ 10 หลัก ไม่สามารถใช้เบอร์ 02 ได้"];
+  const headers = ["MobileNo*\nเบอร์มือถือ", "Name\nชื่อ", "Address\nที่อยู่", "SubDistrict\nตำบล", "District\nอำเภอ", "ZIP\nรหัส ปณ.", "Customer FB/Line\nเฟส/ไลน์ลูกค้า", "SalesChannel\nช่องทางจำหน่าย", "SalesPerson\nชื่อแอดมิน", "SalePrice\nราคาขาย", "COD*\nยอดเก็บเงินปลายทาง", "Remark\nหมายเหตุ", "ProductType\nประเภทสินค้า"];
+  const sample = ["0812345678", "สมชาย ใจดี", "123/4 หมู่ 5", "ในเมือง", "เมืองพิษณุโลก", "65000", "fb:somchai", "ครีมรากโสม เพจหลักบริษัท", "แอดมิน", "390", "390", "ครีม 1 เซรั่ม 1", "ครีมหน้าขาว"];
+  const ws = XLSX.utils.aoa_to_sheet([note, headers, sample]);
+  ws["!cols"] = [14, 20, 35, 14, 14, 8, 20, 25, 14, 10, 10, 25, 16].map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "ProShip");
+  XLSX.writeFile(wb, filename);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // IMPORT EXCEL MODAL
 // ═══════════════════════════════════════════════════════════════
 function ImportModal({ user, shops, onSave, onClose, inline }) {
@@ -924,14 +939,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
           <div style={{ fontSize: 12, color: "#78716c", marginTop: 4 }}>ชื่อ, เบอร์โทร, ที่อยู่, ตำบล, อำเภอ, จังหวัด, รหัสไปรษณีย์, COD, หมายเหตุ</div>
           <div style={{ fontSize: 11, color: "#a8a29e", marginTop: 4 }}>* ชื่อคอลัมน์ภาษาไทยหรืออังกฤษก็ได้ ระบบจับอัตโนมัติ</div>
         </div>
-        <button onClick={() => {
-          const bom = "\uFEFF";
-          const headers = ["Mobile","Name","Address","Sub District","District","Zipcode","FB/LINE","Product","Sale","Sale Price","COD","Remark"];
-          const sample = ["0812345678","สมชาย ใจดี","123/4 หมู่ 5","ในเมือง","เมืองพิษณุโลก","65000","fb:somchai","ครีมหน้าขาว","แอดมิน","390","390","ครีม 1 เซรั่ม 1"];
-          const csv = bom + [headers.join(","), sample.join(",")].join("\n");
-          const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-          const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "import-template.csv"; a.click();
-        }} style={{ marginTop: 12, padding: "10px 20px", background: "#fff", color: "#4f46e5", border: "2px solid #4f46e5", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดไฟล์ตัวอย่าง</button>
+        <button onClick={() => { downloadProShipTemplate("import-template.xlsx"); }} style={{ marginTop: 12, padding: "10px 20px", background: "#fff", color: "#4f46e5", border: "2px solid #4f46e5", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดไฟล์ตัวอย่าง</button>
       </>)}
       {rows.length > 0 && !importing && (<>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}><span style={{ fontSize: 14, fontWeight: 700 }}>พบ {rows.length} รายการ</span><button onClick={toggleAll} style={{ padding: "6px 14px", background: "#f1f5f9", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{rows.every(r => r._selected) ? "ยกเลิกทั้งหมด" : "เลือกทั้งหมด"}</button></div>
@@ -998,14 +1006,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
                 <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>รองรับ .xlsx, .xls (รูปแบบ Flash Express)</div>
                 <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ display: "none" }} />
               </div>
-              <button onClick={() => {
-                const bom = "\uFEFF";
-                const headers = ["Mobile","Name","Address","Sub District","District","Zipcode","FB/LINE","Product","Sale","Sale Price","COD","Remark"];
-                const sample = ["0812345678","สมชาย ใจดี","123/4 หมู่ 5","ในเมือง","เมืองพิษณุโลก","65000","fb:somchai","ครีมหน้าขาว","แอดมิน","390","390","ครีม 1 เซรั่ม 1"];
-                const csv = bom + [headers.join(","), sample.join(",")].join("\n");
-                const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-                const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "import-template.csv"; a.click();
-              }} style={{ marginTop: 12, padding: "10px 20px", background: "#fff", color: "#4f46e5", border: "2px solid #4f46e5", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดไฟล์ตัวอย่าง</button>
+              <button onClick={() => { downloadProShipTemplate("import-template.xlsx"); }} style={{ marginTop: 12, padding: "10px 20px", background: "#fff", color: "#4f46e5", border: "2px solid #4f46e5", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดไฟล์ตัวอย่าง</button>
             </div>
           )}
 
@@ -3537,14 +3538,7 @@ export default function FlashBackend() {
             <label style={{ padding: "10px 20px", background: "#f59e0b", color: "#fff", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📥 Import Excel
               <input type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ""; }} />
             </label>
-            <button onClick={() => {
-              const bom = "\uFEFF";
-              const headers = ["Mobile","Name","Address","Sub District","District","Zipcode","FB/LINE","Product","Sale","Sale Price","COD","Remark"];
-              const sample = ["0812345678","สมชาย ใจดี","123/4 หมู่ 5","ในเมือง","เมืองพิษณุโลก","65000","fb:somchai","ครีมหน้าขาว","แอดมิน","390","390","ครีม 1 เซรั่ม 1"];
-              const csv = bom + [headers.join(","), sample.join(",")].join("\n");
-              const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-              const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "upsell-template.csv"; a.click();
-            }} style={{ padding: "10px 20px", background: "#fff", color: "#f59e0b", border: "2px solid #f59e0b", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดตัวอย่าง</button>
+            <button onClick={() => { downloadProShipTemplate("upsell-template.xlsx"); }} style={{ padding: "10px 20px", background: "#fff", color: "#f59e0b", border: "2px solid #f59e0b", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>📄 ดาวน์โหลดตัวอย่าง</button>
             {upsellRows.length > 0 && <span style={{ fontSize: 13, color: "#64748b" }}>พบ {upsellRows.length} รายการ</span>}
             {upsellRejected.length > 0 && <button onClick={() => {
               const bom = "\uFEFF";
