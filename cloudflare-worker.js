@@ -1,8 +1,8 @@
-// ===== Flash Proxy + Auto-Sync Worker v2.0 (trackmt) =====
-// Flash API Proxy + Supabase Proxy + Auto-Sync สถานะ Flash
+// ===== Flash Proxy + Auto-Sync Worker v3.0 (trackmt) =====
+// Flash API Proxy + Supabase Proxy + Auto-Sync สถานะ Flash (รองรับ 1000+ ออเดอร์/วัน)
 
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxudnlhZnR1bXl3aWNndG90b3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNzE1NjcsImV4cCI6MjA5NTk0NzU2N30.Ymj0QMrzkFZz1QmCqbL0P5lsFmFQzswkbvsLEh3SbB4";
+const SB_KEY ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxudnlhZnR1bXl3aWNndG90b3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNzE1NjcsImV4cCI6MjA5NTk0NzU2N30.Ymj0QMrzkFZz1QmCqbL0P5lsFmFQzswkbvsLEh3SbB4";
 
 // ─────────────────────────────────────────────────────────────
 //  สลับสภาพแวดล้อมที่นี่ที่เดียว:  "production"  หรือ  "training"
@@ -25,9 +25,10 @@ const FLASH_ACCOUNTS = ENV === "training"
 // บัญชีเริ่มต้น (ใช้เมื่อ request ไม่ได้ระบุ mchId)
 const DEFAULT_MCH = ENV === "training" ? "CA5610" : "CBC9351";
 
-const BATCH = 500;        // จำนวนพัสดุที่เช็คต่อรอบ cron (เรียงอัปเดตเก่าสุดก่อน → หมุนครบทุกตัว)
-const DELAY = 250;        // (สำรองไว้ ไม่ได้ใช้แล้วหลังเปลี่ยนเป็นยิงขนาน)
-const CONCURRENCY = 6;    // ยิง getTracking พร้อมกันกี่ตัว
+// ===== ค่าปรับแต่ง Auto-Sync =====
+const PER_RUN = 400;      // จำนวนพัสดุที่เช็กต่อ cron 1 รอบ
+const CONCURRENCY = 6;    // ยิง Flash พร้อมกันกี่ตัว (ปรับขึ้นได้ถ้า Flash ไม่บ่น rate limit)
+const CHUNK_GAP = 150;    // หน่วงระหว่างก้อน (ms) กัน rate limit
 
 async function flashSign(params, apiKey) {
   const keys = Object.keys(params).filter(k => k !== "sign" && params[k] !== "" && params[k] !== null && params[k] !== undefined).sort();
@@ -106,28 +107,22 @@ async function getTracking(pno, preferMchId) {
   return null;
 }
 
-// ยิงงานแบบขนานโดยจำกัดจำนวนพร้อมกัน (ไม่พึ่ง lib ภายนอก)
-async function mapLimit(items, limit, fn) {
-  let idx = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (idx < items.length) { const i = idx++; await fn(items[i]); }
-  });
-  await Promise.all(runners);
-}
-
 async function syncFlash() {
   const t0 = Date.now();
+
+  // 1) ดึงพัสดุที่ "ค้างเช็กนานสุด / ยังไม่เคยเช็ก" มาก่อน (round-robin ด้วย flash_checked_at)
   let parcels = [];
   try {
     parcels = await sbQuery(
       "fx_parcels?select=id,flash_pno,flash_status,flash_detail,status,shop_id" +
       "&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled" +
-      "&order=flash_updated_at.asc.nullsfirst", { range: "0-" + (BATCH - 1) }
+      "&order=flash_checked_at.asc.nullsfirst" +
+      "&limit=" + PER_RUN
     ) || [];
   } catch (e) { return { ok: false, error: e.message, ms: Date.now() - t0 }; }
 
   parcels = parcels.filter(p => p.flash_pno && !DONE.includes(p.flash_status));
-  if (!parcels.length) return { ok: true, checked: 0, updated: 0, ms: Date.now() - t0 };
+  if (!parcels.length) return { ok: true, version: "v3.0", checked: 0, updated: 0, errors: 0, ms: Date.now() - t0 };
 
   let shops = [];
   try { shops = await sbQuery("fx_shops?select=id,flash_mch_id") || []; } catch {}
@@ -135,42 +130,57 @@ async function syncFlash() {
   shops.forEach(s => { shopMap[s.id] = s.flash_mch_id; });
 
   let updated = 0, errors = 0;
-  const updates = {};
+  const nowIso = new Date().toISOString();
 
-  await mapLimit(parcels, CONCURRENCY, async (p) => {
-    const mchId = shopMap[p.shop_id] || DEFAULT_MCH;
-    try {
-      const r = await getTracking(p.flash_pno, mchId);
-      if (r && r.code === 1 && r.data) {
-        const newStatus = r.data.stateText || stateText(r.data.state);
-        const latestRoute = r.data.routes?.[0];
-        const detail = latestRoute?.message || "";
-        const updatedAt = latestRoute?.routedAt ? new Date(latestRoute.routedAt * 1000).toISOString() : null;
-        if (newStatus !== p.flash_status || detail !== (p.flash_detail || "")) {
-          const key = JSON.stringify({ status: newStatus, detail, updatedAt });
-          if (!updates[key]) updates[key] = [];
-          updates[key].push(p.id);
-        }
-      }
-    } catch { errors++; }
-  });
-
-  for (const key in updates) {
-    const { status, detail, updatedAt } = JSON.parse(key);
-    const ids = updates[key];
-    for (let i = 0; i < ids.length; i += 50) {
-      const chunk = ids.slice(i, i + 50);
+  // 2) ประมวลผลเป็นก้อน ก้อนละ CONCURRENCY ตัว ยิงพร้อมกัน
+  for (let i = 0; i < parcels.length; i += CONCURRENCY) {
+    const chunk = parcels.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(chunk.map(async (p) => {
+      const mchId = shopMap[p.shop_id] || DEFAULT_MCH;
       try {
-        const body = { flash_status: status, flash_detail: detail };
-        if (updatedAt) body.flash_updated_at = updatedAt;
-        await sbQuery("fx_parcels?id=in.(" + chunk.join(",") + ")", { method: "PATCH", body, prefer: "return=minimal" });
-        updated += chunk.length;
-      } catch { errors += chunk.length; }
+        const r = await getTracking(p.flash_pno, mchId);
+        if (r && r.code === 1 && r.data) {
+          const newStatus = r.data.stateText || stateText(r.data.state);
+          const lr = r.data.routes && r.data.routes[0];
+          const detail = (lr && lr.message) || "";
+          const updatedAt = (lr && lr.routedAt) ? new Date(lr.routedAt * 1000).toISOString() : null;
+          const changed = (newStatus !== p.flash_status) || (detail !== (p.flash_detail || ""));
+          return { id: p.id, ok: true, changed, status: newStatus, detail, updatedAt };
+        }
+        return { id: p.id, ok: false };
+      } catch { return { id: p.id, ok: false }; }
+    }));
+
+    // 2.1) บันทึกเฉพาะตัวที่สถานะเปลี่ยนจริง (จัดกลุ่มค่าซ้ำเพื่อลดจำนวน PATCH)
+    const groups = {};
+    for (const x of results) {
+      if (!x.ok || !x.changed) continue;
+      const key = JSON.stringify({ status: x.status, detail: x.detail, updatedAt: x.updatedAt });
+      (groups[key] = groups[key] || []).push(x.id);
     }
+    for (const key in groups) {
+      const { status, detail, updatedAt } = JSON.parse(key);
+      const ids = groups[key];
+      const body = { flash_status: status, flash_detail: detail, flash_checked_at: nowIso };
+      if (updatedAt) body.flash_updated_at = updatedAt;
+      try { await sbQuery("fx_parcels?id=in.(" + ids.join(",") + ")", { method: "PATCH", body, prefer: "return=minimal" }); updated += ids.length; }
+      catch { errors += ids.length; }
+    }
+
+    // 2.2) ตัวที่เช็กแล้วแต่ไม่เปลี่ยน + ตัวที่เช็กไม่สำเร็จ → ประทับเวลา checked ก้อนเดียว
+    //      (กันไม่ให้ค้างหัวคิว จะได้หมุนไปเช็กตัวอื่น แล้ววนกลับมาใหม่รอบถัด ๆ ไป)
+    const stamp = results.filter(x => !(x.ok && x.changed)).map(x => x.id);
+    const failed = results.filter(x => !x.ok).length;
+    if (failed) errors += failed;
+    if (stamp.length) {
+      try { await sbQuery("fx_parcels?id=in.(" + stamp.join(",") + ")", { method: "PATCH", body: { flash_checked_at: nowIso }, prefer: "return=minimal" }); } catch {}
+    }
+
+    if (i + CONCURRENCY < parcels.length) await new Promise(r => setTimeout(r, CHUNK_GAP));
   }
 
   if (updated > 0) await broadcastChange();
-  return { ok: true, version: "v2.0", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
+  return { ok: true, version: "v3.0", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
 }
 
 export default {
@@ -189,7 +199,7 @@ export default {
     const url = new URL(req.url);
     const json = (data, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-    if (url.pathname === "/") return json({ status: "ok", version: "v2.0", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
+    if (url.pathname === "/") return json({ status: "ok", version: "v3.0", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
     if (url.pathname === "/sync") return json(await syncFlash());
 
     if (url.pathname === "/test") {
@@ -271,18 +281,7 @@ export default {
       return new Response(buf, { status: r.status, headers: { ...cors, "Content-Type": "application/pdf" } });
     }
 
-    // ═══ SUPABASE PROXY ═══
-    const targetUrl = SB_URL + url.pathname + url.search;
-    const h = new Headers();
-    h.set("apikey", SB_KEY); h.set("Authorization", "Bearer " + SB_KEY); h.set("Content-Type", "application/json");
-    if (req.headers.get("Prefer")) h.set("Prefer", req.headers.get("Prefer"));
-    const reqBody = ["GET", "HEAD"].includes(req.method) ? null : await req.text();
-    try {
-      const res = await fetch(targetUrl, { method: req.method, headers: h, body: reqBody });
-      const respHeaders = new Headers();
-      respHeaders.set("Content-Type", res.headers.get("Content-Type") || "application/json");
-      Object.entries(cors).forEach(([k, v]) => respHeaders.set(k, v));
-      return new Response(res.body, { status: res.status, headers: respHeaders });
-    } catch (e) { return json({ error: e.message }, 500); }
+   // Supabase proxy ปิดแล้ว (กันการเข้าถึง DB ตรงจากภายนอก)
+    return json({ error: "not found" }, 404);
   }
 };
