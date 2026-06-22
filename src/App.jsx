@@ -1291,6 +1291,7 @@ export default function FlashBackend() {
   const [upsellLoading, setUpsellLoading] = useState(true);
   const [upsellFilter, setUpsellFilter] = useState("ALL");
   const [upsellSearch, setUpsellSearch] = useState("");
+  const [upsellDate, setUpsellDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }); // ค่าเริ่มต้น = วันนี้
   const [upsellFile, setUpsellFile] = useState(null);
   const [upsellRows, setUpsellRows] = useState([]);
   const [upsellImporting, setUpsellImporting] = useState(false);
@@ -3316,9 +3317,11 @@ export default function FlashBackend() {
       { key: "cancelled", label: "ยกเลิก", icon: "❌", color: "#dc2626" },
     ];
 
+    const dayKey = (ts) => { if (!ts) return ""; const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
     const filtered = (() => {
       let list = upsellData.filter(p => !p.parcel_created);
       if (upsellShop) list = list.filter(p => p.shop_id === upsellShop);
+      if (upsellDate) list = list.filter(p => dayKey(p.created_at) === upsellDate);
       if (upsellFilter !== "ALL") list = list.filter(p => p.status === upsellFilter);
       if (upsellSearch) { const q = upsellSearch.toLowerCase(); list = list.filter(p => [p.receiver_name, p.receiver_phone, p.remark].some(v => (v || "").toLowerCase().includes(q))); }
       return list;
@@ -3586,11 +3589,15 @@ export default function FlashBackend() {
 
         {/* Tabs + Search */}
         <div style={{ display: "flex", gap: 0, borderBottom: "2px solid #e2e8f0", marginBottom: 16 }}>
-          {TABS.map(t => { const base = upsellData.filter(p => !p.parcel_created); const cnt = t.key === "ALL" ? base.length : base.filter(p => p.status === t.key).length; const active = upsellFilter === t.key; return <button key={t.key} onClick={() => setUpsellFilter(t.key)} style={{ padding: "12px 18px", border: "none", borderBottom: active ? `3px solid ${t.color}` : "3px solid transparent", background: "transparent", color: active ? t.color : "#64748b", fontSize: 13, fontWeight: active ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>{t.icon} {t.label}{cnt > 0 && <span style={{ background: active ? t.color : "#e2e8f0", color: active ? "#fff" : "#64748b", padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{cnt}</span>}</button>; })}
+          {TABS.map(t => { const base = upsellData.filter(p => !p.parcel_created && (!upsellShop || p.shop_id === upsellShop) && (!upsellDate || dayKey(p.created_at) === upsellDate)); const cnt = t.key === "ALL" ? base.length : base.filter(p => p.status === t.key).length; const active = upsellFilter === t.key; return <button key={t.key} onClick={() => setUpsellFilter(t.key)} style={{ padding: "12px 18px", border: "none", borderBottom: active ? `3px solid ${t.color}` : "3px solid transparent", background: "transparent", color: active ? t.color : "#64748b", fontSize: 13, fontWeight: active ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>{t.icon} {t.label}{cnt > 0 && <span style={{ background: active ? t.color : "#e2e8f0", color: active ? "#fff" : "#64748b", padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{cnt}</span>}</button>; })}
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           <input value={upsellSearch} onChange={e => setUpsellSearch(e.target.value)} placeholder="🔍 ค้นหา ชื่อ, เบอร์..." style={{ ...I, flex: 1, minWidth: 150 }} />
           <button onClick={loadUpsell} style={{ ...I, cursor: "pointer" }}>🔄</button>
+          <input type="date" value={upsellDate} onChange={e => setUpsellDate(e.target.value)} title="เลือกวันที่" style={{ ...I, minWidth: 150, fontWeight: 600, color: "#1e293b" }} />
+          {upsellDate
+            ? <button onClick={() => setUpsellDate("")} title="แสดงทุกวัน" style={{ ...I, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 700, color: "#64748b" }}>📅 ดูทุกวัน</button>
+            : <button onClick={() => setUpsellDate(dayKey(new Date()))} title="กลับมาดูวันนี้" style={{ ...I, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 700, background: "#eef2ff", color: "#4f46e5" }}>📅 วันนี้</button>}
           <select value={upsellShop} onChange={e => setUpsellShop(e.target.value)} title="กรองตามร้านค้า" style={{ ...I, minWidth: 140, fontWeight: 600, color: upsellShop ? "#1e293b" : "#64748b", background: upsellShop ? "#fef3c7" : "#fff" }}>
             <option value="">🏪 ทุกร้าน (กรอง)</option>
             {(shops || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
