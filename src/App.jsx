@@ -2723,6 +2723,9 @@ export default function FlashBackend() {
       return fs.includes(key);
     };
 
+    // รวมสถานะที่มีเลขต่อท้ายไม่ซ้ำ (เช่น "พัสดุตีกลับแล้ว Returned Tracking No. THxxxx") ให้เป็นกลุ่มเดียว
+    const normLabel = (fs) => (fs || "").replace(/Returned Tracking No\.?.*$/i, "").replace(/\s+/g, " ").trim();
+
     const filtered = useMemo(() => {
       let list = tracked;
       if (rptShop) list = list.filter(p => p.shop_id === rptShop);
@@ -2730,7 +2733,7 @@ export default function FlashBackend() {
         if (rptFilter === "สร้างรายการ") list = list.filter(p => !p.flash_status || p.flash_status === "" || p.flash_status === "สร้างรายการ");
         else if (rptFilter === "RETURN_ALL") list = list.filter(p => RETURN_STATUSES.some(s => (p.flash_status || "").includes(s)));
         else if (rptFilter === "OTHER") list = list.filter(p => p.flash_status && p.flash_status !== "สร้างรายการ" && !KNOWN_KEYS.some(k => matchStatus(p.flash_status, k)));
-        else if (rptFilter.startsWith("EXACT::")) list = list.filter(p => (p.flash_status || "") === rptFilter.slice(7));
+        else if (rptFilter.startsWith("GROUP::")) { const lbl = rptFilter.slice(7); list = list.filter(p => normLabel(p.flash_status) === lbl); }
         else list = list.filter(p => matchStatus(p.flash_status, rptFilter));
       }
       if (rptSearch) {
@@ -2769,7 +2772,7 @@ export default function FlashBackend() {
       for (const p of list) {
         const fs = p.flash_status;
         if (!fs || fs === "สร้างรายการ") continue;
-        if (!KNOWN_KEYS.some(k => matchStatus(fs, k))) m[fs] = (m[fs] || 0) + 1;
+        if (!KNOWN_KEYS.some(k => matchStatus(fs, k))) { const lbl = normLabel(fs); m[lbl] = (m[lbl] || 0) + 1; }
       }
       return Object.entries(m).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
     }, [tracked, rptShop]);
@@ -2816,7 +2819,7 @@ export default function FlashBackend() {
             );
           })}
           {otherStatusList.map(o => {
-            const key = "EXACT::" + o.label;
+            const key = "GROUP::" + o.label;
             const active = rptFilter === key;
             return (
               <div key={key} title="สถานะจริงจาก Flash" onClick={() => { setRptFilter(key); setRptPage(0); }} style={{
