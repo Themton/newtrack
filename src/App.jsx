@@ -2704,6 +2704,7 @@ export default function FlashBackend() {
       { key: "รับพัสดุแล้ว", label: "รับพัสดุแล้ว", icon: "📬", color: "#0ea5e9" },
       { key: "ขนส่ง", label: "ในระบบขนส่ง", icon: "🚛", color: "#8b5cf6" },
       { key: "คงคลัง", label: "พัสดุคงคลัง", icon: "🏬", color: "#0891b2" },
+      { key: "มีปัญหา", label: "พัสดุมีปัญหา", icon: "⚠️", color: "#f59e0b" },
       { key: "กำลังจัดส่ง", label: "กำลังจัดส่ง", icon: "🛵", color: "#3b82f6" },
       { key: "เซ็นรับแล้ว", label: "เซ็นรับแล้ว", icon: "✅", color: "#10b981" },
       { key: "RETURN_ALL", label: "ตีกลับทั้งหมด", icon: "↩️", color: "#ef4444" },
@@ -2715,7 +2716,7 @@ export default function FlashBackend() {
     ];
 
     const RETURN_STATUSES = ["ส่งคืน", "คืนสำเร็จ", "นำส่งไม่สำเร็จ", "ตีกลับ", "ส่งกลับ"];
-    const KNOWN_KEYS = ["รับพัสดุแล้ว", "ขนส่ง", "กำลังจัดส่ง", "เซ็นรับแล้ว", "นำส่งไม่สำเร็จ", "ส่งคืน", "คืนสำเร็จ", "ตีกลับแล้ว", "คงคลัง"];
+    const KNOWN_KEYS = ["รับพัสดุแล้ว", "ขนส่ง", "กำลังจัดส่ง", "เซ็นรับแล้ว", "นำส่งไม่สำเร็จ", "ส่งคืน", "คืนสำเร็จ", "ตีกลับแล้ว", "คงคลัง", "มีปัญหา"];
 
     // match สถานะ Flash ทุกรูปแบบ (API คืนชื่อต่างกัน)
     const matchStatus = (fs, key) => {
@@ -2728,6 +2729,7 @@ export default function FlashBackend() {
       if (key === "ส่งคืน") return (fs.includes("ส่งคืน") || fs.includes("ส่งกลับ")) && !fs.includes("สำเร็จ");
       if (key === "คืนสำเร็จ") return fs.includes("คืนสำเร็จ");
       if (key === "คงคลัง") return fs.includes("คงคลัง");
+      if (key === "มีปัญหา") return fs.includes("มีปัญหา");
       if (key === "ตีกลับแล้ว") return fs.includes("ตีกลับ");
       if (key === "OTHER") return !KNOWN_KEYS.some(k => matchStatus(fs, k));
       return fs.includes(key);
@@ -2759,7 +2761,7 @@ export default function FlashBackend() {
     // นับแยกสถานะ — รอบเดียว O(n) แทน 11 รอบ
     const statusCounts = useMemo(() => {
       const list = rptShop ? tracked.filter(p => p.shop_id === rptShop) : tracked;
-      const counts = { ALL: list.length, "สร้างรายการ": 0, "รับพัสดุแล้ว": 0, "ขนส่ง": 0, "คงคลัง": 0, "กำลังจัดส่ง": 0, "เซ็นรับแล้ว": 0, RETURN_ALL: 0, "ตีกลับแล้ว": 0, "นำส่งไม่สำเร็จ": 0, "ส่งคืน": 0, "คืนสำเร็จ": 0, OTHER: 0 };
+      const counts = { ALL: list.length, "สร้างรายการ": 0, "รับพัสดุแล้ว": 0, "ขนส่ง": 0, "คงคลัง": 0, "มีปัญหา": 0, "กำลังจัดส่ง": 0, "เซ็นรับแล้ว": 0, RETURN_ALL: 0, "ตีกลับแล้ว": 0, "นำส่งไม่สำเร็จ": 0, "ส่งคืน": 0, "คืนสำเร็จ": 0, OTHER: 0 };
       for (const p of list) {
         const fs = p.flash_status;
         if (!fs || fs === "" || fs === "สร้างรายการ") { counts["สร้างรายการ"]++; }
@@ -2772,6 +2774,7 @@ export default function FlashBackend() {
         else if (matchStatus(fs, "ส่งคืน")) { counts["ส่งคืน"]++; counts.RETURN_ALL++; }
         else if (matchStatus(fs, "ตีกลับแล้ว")) { counts["ตีกลับแล้ว"]++; counts.RETURN_ALL++; }
         else if (matchStatus(fs, "คงคลัง")) { counts["คงคลัง"]++; }
+        else if (matchStatus(fs, "มีปัญหา")) { counts["มีปัญหา"]++; }
         else { counts.OTHER++; }
       }
       return counts;
