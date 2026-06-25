@@ -189,6 +189,12 @@ async function sha256(str) {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+// รวมสถานะตีกลับที่มีเลข return ต่อท้าย (เช่น "พัสดุตีกลับแล้ว Returned Tracking No. THxxxx") → "พัสดุตีกลับแล้ว"
+function cleanFlashStatus(fs) {
+  if (!fs) return fs;
+  return fs.replace(/\s*Returned Tracking No\.?.*$/i, "").replace(/\s+/g, " ").trim();
+}
+
 function generateParcelNo() {
   const now = new Date();
   const d = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
@@ -1204,10 +1210,10 @@ function PublicTracking() {
   const sColor = (fs, st) => {
     if (st === "cancelled") return { bg: "#fee2e2", color: "#991b1b", txt: "ยกเลิก" };
     if (!fs || fs === "สร้างรายการ") return { bg: "#fef3c7", color: "#92400e", txt: "กำลังเตรียมพัสดุ" };
-    if (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ")) return { bg: "#d1fae5", color: "#065f46", txt: fs };
-    if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ตีกลับ") || fs.includes("ส่งกลับ")) return { bg: "#fee2e2", color: "#991b1b", txt: fs };
-    if (fs.includes("ขนส่ง")) return { bg: "#ede9fe", color: "#6d28d9", txt: fs };
-    return { bg: "#e0f2fe", color: "#0369a1", txt: fs };
+    if (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ")) return { bg: "#d1fae5", color: "#065f46", txt: cleanFlashStatus(fs) };
+    if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ตีกลับ") || fs.includes("ส่งกลับ")) return { bg: "#fee2e2", color: "#991b1b", txt: cleanFlashStatus(fs) };
+    if (fs.includes("ขนส่ง")) return { bg: "#ede9fe", color: "#6d28d9", txt: cleanFlashStatus(fs) };
+    return { bg: "#e0f2fe", color: "#0369a1", txt: cleanFlashStatus(fs) };
   };
   const mask = (n) => { const s = (n || "").trim(); if (s.length <= 2) return s; return s.slice(0, 1) + "•".repeat(Math.max(1, s.length - 2)) + s.slice(-1); };
   return (
@@ -1958,7 +1964,7 @@ export default function FlashBackend() {
                   <div key={p.id} style={{ padding: "14px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontWeight: 700, fontSize: 15 }}>{p.receiver_name}</span>
-                      <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: sc.bg, color: sc.color }}>{p.flash_status || "สร้างรายการ"}</span>
+                      <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: sc.bg, color: sc.color }}>{cleanFlashStatus(p.flash_status) || "สร้างรายการ"}</span>
                     </div>
                     <div style={{ display: "flex", gap: 16, fontSize: 13, color: "#6b7280", flexWrap: "wrap" }}>
                       <span>📱 {p.receiver_phone}</span>
@@ -2164,7 +2170,7 @@ export default function FlashBackend() {
                   <div style={{ fontWeight: 800, fontSize: 16 }}>{p.receiver_name} <span style={{ fontFamily: "monospace", fontSize: 12, color: "#4f46e5", fontWeight: 600, marginLeft: 6 }}>{p.flash_pno || ""}</span></div>
                   <div style={{ fontSize: 13, color: "#64748b", marginTop: 3 }}>📍 {[p.receiver_district, p.receiver_province].filter(Boolean).join(" ")} {p.cod_enabled && Number(p.cod_amount) > 0 ? <span style={{ color: "#dc2626", fontWeight: 700 }}>· COD ฿{Number(p.cod_amount).toLocaleString()}</span> : null}</div>
                 </div>
-                <span style={{ padding: "5px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: "#fee2e2", color: "#991b1b", whiteSpace: "nowrap" }}>{p.flash_status}</span>
+                <span style={{ padding: "5px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: "#fee2e2", color: "#991b1b", whiteSpace: "nowrap" }}>{cleanFlashStatus(p.flash_status)}</span>
               </div>
               {p.flash_detail && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 10, padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>💬 {p.flash_detail}</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -2700,6 +2706,7 @@ export default function FlashBackend() {
       { key: "กำลังจัดส่ง", label: "กำลังจัดส่ง", icon: "🛵", color: "#3b82f6" },
       { key: "เซ็นรับแล้ว", label: "เซ็นรับแล้ว", icon: "✅", color: "#10b981" },
       { key: "RETURN_ALL", label: "ตีกลับทั้งหมด", icon: "↩️", color: "#ef4444" },
+      { key: "ตีกลับแล้ว", label: "พัสดุตีกลับแล้ว", icon: "📦", color: "#ef4444" },
       { key: "นำส่งไม่สำเร็จ", label: "นำส่งไม่สำเร็จ", icon: "❌", color: "#f97316" },
       { key: "ส่งคืน", label: "กำลังส่งคืน", icon: "🔄", color: "#ef4444" },
       { key: "คืนสำเร็จ", label: "คืนสำเร็จ", icon: "📦", color: "#6b7280" },
@@ -2707,7 +2714,7 @@ export default function FlashBackend() {
     ];
 
     const RETURN_STATUSES = ["ส่งคืน", "คืนสำเร็จ", "นำส่งไม่สำเร็จ", "ตีกลับ", "ส่งกลับ"];
-    const KNOWN_KEYS = ["รับพัสดุแล้ว", "ขนส่ง", "กำลังจัดส่ง", "เซ็นรับแล้ว", "นำส่งไม่สำเร็จ", "ส่งคืน", "คืนสำเร็จ"];
+    const KNOWN_KEYS = ["รับพัสดุแล้ว", "ขนส่ง", "กำลังจัดส่ง", "เซ็นรับแล้ว", "นำส่งไม่สำเร็จ", "ส่งคืน", "คืนสำเร็จ", "ตีกลับแล้ว"];
 
     // match สถานะ Flash ทุกรูปแบบ (API คืนชื่อต่างกัน)
     const matchStatus = (fs, key) => {
@@ -2719,6 +2726,7 @@ export default function FlashBackend() {
       if (key === "นำส่งไม่สำเร็จ") return fs.includes("ไม่สำเร็จ");
       if (key === "ส่งคืน") return (fs.includes("ส่งคืน") || fs.includes("ส่งกลับ")) && !fs.includes("สำเร็จ");
       if (key === "คืนสำเร็จ") return fs.includes("คืนสำเร็จ");
+      if (key === "ตีกลับแล้ว") return fs.includes("ตีกลับ");
       if (key === "OTHER") return !KNOWN_KEYS.some(k => matchStatus(fs, k));
       return fs.includes(key);
     };
@@ -2749,7 +2757,7 @@ export default function FlashBackend() {
     // นับแยกสถานะ — รอบเดียว O(n) แทน 11 รอบ
     const statusCounts = useMemo(() => {
       const list = rptShop ? tracked.filter(p => p.shop_id === rptShop) : tracked;
-      const counts = { ALL: list.length, "สร้างรายการ": 0, "รับพัสดุแล้ว": 0, "ขนส่ง": 0, "กำลังจัดส่ง": 0, "เซ็นรับแล้ว": 0, RETURN_ALL: 0, "นำส่งไม่สำเร็จ": 0, "ส่งคืน": 0, "คืนสำเร็จ": 0, OTHER: 0 };
+      const counts = { ALL: list.length, "สร้างรายการ": 0, "รับพัสดุแล้ว": 0, "ขนส่ง": 0, "กำลังจัดส่ง": 0, "เซ็นรับแล้ว": 0, RETURN_ALL: 0, "ตีกลับแล้ว": 0, "นำส่งไม่สำเร็จ": 0, "ส่งคืน": 0, "คืนสำเร็จ": 0, OTHER: 0 };
       for (const p of list) {
         const fs = p.flash_status;
         if (!fs || fs === "" || fs === "สร้างรายการ") { counts["สร้างรายการ"]++; }
@@ -2760,6 +2768,7 @@ export default function FlashBackend() {
         else if (matchStatus(fs, "คืนสำเร็จ")) { counts["คืนสำเร็จ"]++; counts.RETURN_ALL++; }
         else if (matchStatus(fs, "นำส่งไม่สำเร็จ")) { counts["นำส่งไม่สำเร็จ"]++; counts.RETURN_ALL++; }
         else if (matchStatus(fs, "ส่งคืน")) { counts["ส่งคืน"]++; counts.RETURN_ALL++; }
+        else if (matchStatus(fs, "ตีกลับแล้ว")) { counts["ตีกลับแล้ว"]++; counts.RETURN_ALL++; }
         else { counts.OTHER++; }
       }
       return counts;
@@ -2881,7 +2890,7 @@ export default function FlashBackend() {
                 </thead>
                 <tbody>
                   {rptPaged.map((p, i) => {
-                    const fs = p.flash_status || "สร้างรายการ";
+                    const fs = cleanFlashStatus(p.flash_status) || "สร้างรายการ";
                     const fStyle = getStatusStyle(fs);
                     const sysStatus = { draft: "📝 เตรียม", created: "✅ สร้างเลข", printed: "🖨️ ปริ้น", cancelled: "❌ ยกเลิก" }[p.status] || p.status;
                     const shop = shops?.find(s => s.id === p.shop_id);
@@ -4338,7 +4347,7 @@ export default function FlashBackend() {
                             else if (fs.includes("ไม่สำเร็จ") || fs.includes("คืน") || fs.includes("ตีกลับ") || fs.includes("ส่งกลับ")) { bg = "#fee2e2"; color = "#991b1b"; }
                             else if (fs.includes("ขนส่ง") || fs.includes("จัดส่ง") || fs.includes("นำจ่าย")) { bg = "#dbeafe"; color = "#1e40af"; }
                             else if (fs.includes("รับพัสดุ")) { bg = "#e0f2fe"; color = "#0369a1"; }
-                            return <span title={p.flash_detail || ""} style={{ padding: "3px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "help", background: bg, color }}>{fs}</span>;
+                            return <span title={p.flash_detail || ""} style={{ padding: "3px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "help", background: bg, color }}>{cleanFlashStatus(fs)}</span>;
                           })() : <span style={{ color: "#d1d5db", fontSize: 11 }}>—</span>}</td>
                           <td style={{ padding: "8px 10px" }}>{p.flash_pno ? <span style={{ color: "#0ea5e9", fontWeight: 600, fontSize: 12 }}>{p.flash_pno} {p.flash_sort_code ? "📋" : ""}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
                           {perm.viewCOD && <td style={{ padding: "8px 10px", fontWeight: 700, fontSize: 13 }}>{p.cod_enabled ? <span style={{ color: "#000" }}>{Number(p.cod_amount || 0).toLocaleString()}</span> : ""}</td>}
