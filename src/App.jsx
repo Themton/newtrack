@@ -1367,6 +1367,35 @@ export default function FlashBackend() {
     } catch {} setLoading(false);
   }, [isDemo, demoData, month]);
 
+  // ── โหลดเฉพาะสถานะที่เปลี่ยน (ลด egress ตอน auto-refresh) — merge เข้าของเดิม ไม่โหลด select=* ใหม่ทั้งก้อน ──
+  const parcelsRef = useRef(parcels);
+  parcelsRef.current = parcels;
+  const refreshStatuses = useCallback(async () => {
+    if (isDemo) return;
+    try {
+      const [yy, mm] = month.split("-").map(Number);
+      const start = new Date(yy, mm - 1, 1).toISOString();
+      const end = new Date(yy, mm, 1).toISOString();
+      const monthFilter = `&created_at=gte.${start}&created_at=lt.${end}`;
+      let all = [], pg = 0;
+      while (pg < 30) {
+        const from = pg * 1000;
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id,status,flash_status,flash_detail,flash_updated_at&order=created_at.desc${monthFilter}`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
+        const data = await res.json();
+        if (!Array.isArray(data) || !data.length) break;
+        all = all.concat(data);
+        if (data.length < 1000) break;
+        pg++;
+      }
+      const prev = parcelsRef.current;
+      const prevIds = new Set(prev.map(p => p.id));
+      const sameSet = all.length === prev.length && all.every(r => prevIds.has(r.id));
+      if (!sameSet) { loadParcels(); return; } // มีรายการใหม่/ถูกลบ → โหลดเต็มทีเดียว
+      const map = {}; all.forEach(r => { map[r.id] = r; });
+      setParcels(prev2 => prev2.map(p => map[p.id] ? { ...p, ...map[p.id] } : p));
+    } catch {}
+  }, [isDemo, month, loadParcels]);
+
   // เลื่อนเดือนก่อนหน้า/ถัดไป
   const shiftMonth = (delta) => {
     const [y, m] = month.split("-").map(Number);
@@ -1427,7 +1456,7 @@ export default function FlashBackend() {
     if (isDemo) return;
     try {
       // ยังไม่เข้ารับ = flash_detail เป็นค่าว่าง "" (Flash จะใส่รายละเอียดให้เมื่อสแกนรับจริงเท่านั้น; default ของคอลัมน์คือ '')
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&flash_detail=eq.&order=created_at.desc`;
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&flash_detail=eq.&order=created_at.desc&limit=3000`;
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
       if (Array.isArray(data)) setNotInFlashAll(data);
@@ -1447,18 +1476,16 @@ export default function FlashBackend() {
         const ts = rows?.[0]?.value || "0";
         if (ts !== lastTs.current && lastTs.current !== "0") {
           const pg = activePageRef.current;
-          loadNotInFlash();
-          if (["parcels", "report", "dashboard"].includes(pg)) { loadParcels(); loadShops(); }
+          if (["parcels", "report", "dashboard"].includes(pg)) { refreshStatuses(); loadShops(); }
+          if (["parcels", "dashboard", "notinflash"].includes(pg)) loadNotInFlash();
         }
         lastTs.current = ts;
       } catch {}
     }, 5000);
     return () => clearInterval(poll);
-  }, [user, isDemo, loadParcels, loadShops]);
+  }, [user, isDemo, refreshStatuses, loadShops, loadNotInFlash]);
 
   // ═══ AUTO-SYNC FLASH STATUS — ทุก 5 นาที + ตอนโหลดหน้า ═══
-  const parcelsRef = useRef(parcels);
-  parcelsRef.current = parcels;
   // auto-sync สถานะ Flash ย้ายไปทำที่ Cloudflare Worker (cron) แล้ว — ตัดออกจากเบราว์เซอร์เพื่อเลิกงานซ้ำและลด egress
   // (ปุ่มรีเฟรชสถานะเอง refreshFlashStatus ยังใช้ได้ตามปกติ)
 
