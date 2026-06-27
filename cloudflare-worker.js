@@ -1,4 +1,4 @@
-// ===== Flash Proxy + Auto-Sync Worker v3.2 (trackmt) =====
+// ===== Flash Proxy + Auto-Sync Worker v3.3 (trackmt) =====
 // Flash API Proxy + Supabase Proxy + Auto-Sync สถานะ Flash (รองรับ 1000+ ออเดอร์/วัน)
 
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
@@ -29,6 +29,7 @@ const DEFAULT_MCH = ENV === "training" ? "CA5610" : "CBC9351";
 const PER_RUN = 400;      // จำนวนพัสดุที่เช็กต่อ cron 1 รอบ
 const CONCURRENCY = 6;    // ยิง Flash พร้อมกันกี่ตัว (ปรับขึ้นได้ถ้า Flash ไม่บ่น rate limit)
 const CHUNK_GAP = 150;    // หน่วงระหว่างก้อน (ms) กัน rate limit
+const STALE_MIN = 10;     // เช็กพัสดุแต่ละใบซ้ำก็ต่อเมื่อผ่านไปแล้วเกินกี่นาที (กันดึงซ้ำถี่เกิน → ลด egress)
 
 async function flashSign(params, apiKey) {
   const keys = Object.keys(params).filter(k => k !== "sign" && params[k] !== "" && params[k] !== null && params[k] !== undefined).sort();
@@ -113,10 +114,11 @@ async function syncFlash() {
   // 1) ดึงพัสดุที่ "ค้างเช็กนานสุด / ยังไม่เคยเช็ก" มาก่อน (round-robin ด้วย flash_checked_at)
   let parcels = [];
   try {
+    const staleBefore = new Date(Date.now() - STALE_MIN * 60000).toISOString();
     parcels = await sbQuery(
       "fx_parcels?select=id,flash_pno,flash_status,flash_detail,status,shop_id" +
       "&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled" +
-      "&or=(flash_status.is.null,flash_status.not.in.(เซ็นรับแล้ว,คืนสำเร็จ))" +
+      "&and=(or(flash_status.is.null,flash_status.not.in.(เซ็นรับแล้ว,คืนสำเร็จ)),or(flash_checked_at.is.null,flash_checked_at.lt." + staleBefore + "))" +
       "&order=flash_checked_at.asc.nullsfirst" +
       "&limit=" + PER_RUN
     ) || [];
@@ -133,7 +135,7 @@ async function syncFlash() {
   }
 
   parcels = parcels.filter(p => p.flash_pno && !DONE.includes(p.flash_status));
-  if (!parcels.length) return { ok: true, version: "v3.2", checked: 0, updated: 0, errors: 0, stamped_done: doneIds.length, ms: Date.now() - t0 };
+  if (!parcels.length) return { ok: true, version: "v3.3", checked: 0, updated: 0, errors: 0, stamped_done: doneIds.length, ms: Date.now() - t0 };
 
   let shops = [];
   try { shops = await sbQuery("fx_shops?select=id,flash_mch_id") || []; } catch {}
@@ -190,7 +192,7 @@ async function syncFlash() {
   }
 
   if (updated > 0) await broadcastChange();
-  return { ok: true, version: "v3.2", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
+  return { ok: true, version: "v3.3", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
 }
 
 export default {
@@ -209,7 +211,7 @@ export default {
     const url = new URL(req.url);
     const json = (data, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-    if (url.pathname === "/") return json({ status: "ok", version: "v3.2", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
+    if (url.pathname === "/") return json({ status: "ok", version: "v3.3", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
     if (url.pathname === "/sync") return json(await syncFlash());
 
     if (url.pathname === "/test") {
