@@ -2140,6 +2140,7 @@ export default function FlashBackend() {
     const [busy, setBusy] = useState(false);
     const [log, setLog] = useState([]);
     const [pending, setPending] = useState(null);
+    const [totalRet, setTotalRet] = useState(null);
     const [received, setReceived] = useState([]);
     const [loadingList, setLoadingList] = useState(false);
     const inputRef = useRef(null);
@@ -2149,13 +2150,18 @@ export default function FlashBackend() {
     const userName = user?.display_name || user?.username || "";
     useEffect(() => { if (mode === "scan") inputRef.current?.focus(); }, [mode]);
     const loadPending = useCallback(async () => {
-      if (isDemo) { setPending(0); return; }
-      try {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id&status=neq.cancelled&flash_status=ilike.*%E0%B8%95%E0%B8%B5%E0%B8%81%E0%B8%A5%E0%B8%B1%E0%B8%9A*&returned_received=not.is.true`, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-0" } });
+      if (isDemo) { setPending(0); setTotalRet(0); return; }
+      const RET = "*%E0%B8%95%E0%B8%B5%E0%B8%81%E0%B8%A5%E0%B8%B1%E0%B8%9A*";
+      const countOf = async (extra) => {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id&status=neq.cancelled&flash_status=ilike.${RET}${extra}`, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-0" } });
         const cr = res.headers.get("content-range") || "";
-        const total = cr.includes("/") ? parseInt(cr.split("/")[1]) : 0;
-        setPending(isNaN(total) ? null : total);
-      } catch { setPending(null); }
+        const n = cr.includes("/") ? parseInt(cr.split("/")[1]) : NaN;
+        return isNaN(n) ? null : n;
+      };
+      try {
+        const [t, p] = await Promise.all([countOf(""), countOf("&returned_received=not.is.true")]);
+        setTotalRet(t); setPending(p);
+      } catch { setTotalRet(null); setPending(null); }
     }, []);
     useEffect(() => { loadPending(); }, [loadPending]);
     const loadReceived = useCallback(async () => {
@@ -2261,10 +2267,12 @@ export default function FlashBackend() {
           <button onClick={goList} style={tabBtn(mode === "list")}>📋 รายการที่รับแล้ว</button>
         </div>
 
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-          <div style={{ flex: 1, minWidth: 140, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#047857", fontWeight: 700 }}>✅ รับแล้ว (รอบนี้)</div><div style={{ fontSize: 26, fontWeight: 800, color: "#065f46" }}>{okCount}</div></div>
-          <div style={{ flex: 1, minWidth: 140, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#b45309", fontWeight: 700 }}>📦 ตีกลับที่ยังไม่รับ</div><div style={{ fontSize: 26, fontWeight: 800, color: "#92400e" }}>{pending == null ? "—" : pending}</div></div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ flex: 1, minWidth: 120, background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#4338ca", fontWeight: 700 }}>📦 ตีกลับทั้งหมด</div><div style={{ fontSize: 26, fontWeight: 800, color: "#3730a3" }}>{totalRet == null ? "—" : totalRet}</div></div>
+          <div style={{ flex: 1, minWidth: 120, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#047857", fontWeight: 700 }}>✅ รับเข้าร้านแล้ว</div><div style={{ fontSize: 26, fontWeight: 800, color: "#065f46" }}>{(totalRet == null || pending == null) ? "—" : Math.max(0, totalRet - pending)}</div></div>
+          <div style={{ flex: 1, minWidth: 120, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#b45309", fontWeight: 700 }}>🚚 ยังไม่ถึงร้าน</div><div style={{ fontSize: 26, fontWeight: 800, color: "#92400e" }}>{pending == null ? "—" : pending}</div></div>
         </div>
+        <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 16 }}>สแกนรับรอบนี้: <b style={{ color: "#065f46" }}>{okCount}</b> ใบ</div>
 
         {mode === "scan" ? (<>
           <input ref={inputRef} value={scan} onChange={e => onScanChange(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleScan(scan); }} placeholder="🔫 ยิงบาร์โค้ดได้เลย (ยิงจบรันเอง) — หรือพิมพ์เลข + Enter" autoFocus disabled={busy}
