@@ -2029,6 +2029,7 @@ export default function FlashBackend() {
     { key: "report", label: "รายงานสถานะ", icon: "🚚" },
     { key: "notinflash", label: "แฟลชยังไม่เข้ารับ", icon: "📭" },
     ...(perm.status ? [{ key: "problems", label: "พัสดุมีปัญหา", icon: "⚠️" }] : []),
+    { key: "returnreceive", label: "รับพัสดุตีกลับ", icon: "🔁" },
     ...(perm.dashboard ? [{ key: "summary", label: "สรุปรายงาน", icon: "📋" }] : []),
     ...(perm.evaluate ? [{ key: "evaluate", label: "ประเมินผล", icon: "📈" }] : []),
     ...(perm.viewCOD ? [{ key: "cod", label: "กระทบยอด COD", icon: "💵" }] : []),
@@ -2132,6 +2133,101 @@ export default function FlashBackend() {
   };
 
   // ═══ แฟลชยังไม่เข้ารับ — พัสดุสร้างเลขแล้วแต่ Flash ยังไม่สแกนรับ ═══
+  // ═══ RETURN-RECEIVE PAGE — สแกนรับพัสดุตีกลับ ═══
+  const ReturnReceivePage = () => {
+    const [scan, setScan] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [log, setLog] = useState([]);
+    const [pending, setPending] = useState(null);
+    const inputRef = useRef(null);
+    const userName = user?.display_name || user?.username || "";
+    useEffect(() => { inputRef.current?.focus(); }, []);
+    useEffect(() => {
+      if (isDemo) { setPending(0); return; }
+      (async () => {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id&status=neq.cancelled&flash_status=ilike.*%E0%B8%95%E0%B8%B5%E0%B8%81%E0%B8%A5%E0%B8%B1%E0%B8%9A*&returned_received=not.is.true`, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-0" } });
+          const cr = res.headers.get("content-range") || "";
+          const total = cr.includes("/") ? parseInt(cr.split("/")[1]) : 0;
+          setPending(isNaN(total) ? null : total);
+        } catch { setPending(null); }
+      })();
+    }, []);
+    const beep = (ok) => { try { const C = window.AudioContext || window.webkitAudioContext; const ctx = new C(); const o = ctx.createOscillator(); const g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value = ok ? 880 : 200; o.type = "square"; g.gain.value = 0.08; o.start(); setTimeout(() => { o.stop(); ctx.close(); }, ok ? 110 : 320); } catch {} };
+    const handleScan = async (raw) => {
+      const num = (raw || "").trim().toUpperCase();
+      setScan("");
+      if (!num || busy) { inputRef.current?.focus(); return; }
+      setBusy(true);
+      try {
+        let found = null;
+        if (isDemo) {
+          found = parcels.find(p => (p.flash_pno || "").toUpperCase() === num || (p.flash_status || "").toUpperCase().includes(num));
+        } else {
+          const rows = await sb.query("fx_parcels", { filters: `or=(flash_pno.eq.${num},flash_status.ilike.*${num}*)`, limit: 1 });
+          found = rows && rows[0];
+        }
+        if (!found) {
+          beep(false); setLog(l => [{ ok: false, msg: `ไม่พบเลข ${num}`, at: Date.now() }, ...l]);
+        } else if (found.returned_received) {
+          beep(false); setLog(l => [{ warn: true, name: found.receiver_name, pno: found.flash_pno, when: found.returned_received_at, at: Date.now() }, ...l]);
+        } else {
+          const at = new Date().toISOString();
+          if (!isDemo) await sb.update("fx_parcels", found.id, { returned_received: true, returned_received_at: at, returned_received_by: userName });
+          setParcels(prev => prev.map(p => p.id === found.id ? { ...p, returned_received: true, returned_received_at: at, returned_received_by: userName } : p));
+          beep(true);
+          setLog(l => [{ ok: true, name: found.receiver_name, pno: found.flash_pno, status: cleanFlashStatus(found.flash_status), at: Date.now() }, ...l]);
+          setPending(n => typeof n === "number" ? Math.max(0, n - 1) : n);
+        }
+      } catch (e) {
+        const msg = /returned_received/.test(e.message || "") ? "ยังไม่ได้เพิ่มคอลัมน์ในฐานข้อมูล — รัน SQL ก่อน (supabase-returned-received.sql)" : ("ผิดพลาด: " + e.message);
+        beep(false); setLog(l => [{ ok: false, msg, at: Date.now() }, ...l]);
+      }
+      setBusy(false);
+      inputRef.current?.focus();
+    };
+    const okCount = log.filter(x => x.ok).length;
+    const latest = log[0];
+    return (
+      <div style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
+        <div style={{ marginBottom: 18 }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📥 สแกนรับพัสดุตีกลับ</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ยิงบาร์โค้ดหรือพิมพ์เลขพัสดุที่ตีกลับมาถึงร้าน แล้วกด Enter — สแกนเลขเดิมหรือเลข return ก็ได้</p>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+          <div style={{ flex: 1, minWidth: 140, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#047857", fontWeight: 700 }}>✅ รับแล้ว (รอบนี้)</div><div style={{ fontSize: 26, fontWeight: 800, color: "#065f46" }}>{okCount}</div></div>
+          <div style={{ flex: 1, minWidth: 140, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#b45309", fontWeight: 700 }}>📦 ตีกลับที่ยังไม่รับ</div><div style={{ fontSize: 26, fontWeight: 800, color: "#92400e" }}>{pending == null ? "—" : pending}</div></div>
+        </div>
+
+        <input ref={inputRef} value={scan} onChange={e => setScan(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleScan(scan); }} placeholder="🔫 ยิงบาร์โค้ด / พิมพ์เลขพัสดุ แล้ว Enter" autoFocus disabled={busy}
+          style={{ width: "100%", boxSizing: "border-box", padding: "16px 18px", fontSize: 18, fontWeight: 700, fontFamily: "monospace", letterSpacing: 1, border: "2.5px solid #6366f1", borderRadius: 12, outline: "none", background: busy ? "#f1f5f9" : "#fff" }} />
+
+        {latest && (
+          <div style={{ marginTop: 14, padding: "16px 20px", borderRadius: 12, background: latest.ok ? "#d1fae5" : latest.warn ? "#fef3c7" : "#fee2e2", border: `1px solid ${latest.ok ? "#6ee7b7" : latest.warn ? "#fcd34d" : "#fca5a5"}` }}>
+            {latest.ok ? <div><div style={{ fontSize: 18, fontWeight: 800, color: "#065f46" }}>✅ รับตีกลับแล้ว</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 700 }}>{latest.name} <span style={{ fontFamily: "monospace", color: "#4f46e5", fontSize: 13 }}>{latest.pno}</span></div>{latest.status && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>{latest.status}</div>}</div>
+              : latest.warn ? <div><div style={{ fontSize: 18, fontWeight: 800, color: "#92400e" }}>⚠️ ใบนี้รับไปแล้ว</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 700 }}>{latest.name} <span style={{ fontFamily: "monospace", color: "#4f46e5", fontSize: 13 }}>{latest.pno}</span></div>{latest.when && <div style={{ fontSize: 12.5, color: "#92400e", marginTop: 2 }}>รับเมื่อ {new Date(latest.when).toLocaleString("th-TH")}</div>}</div>
+                : <div style={{ fontSize: 17, fontWeight: 800, color: "#991b1b" }}>❌ {latest.msg}</div>}
+          </div>
+        )}
+
+        {log.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b", marginBottom: 8 }}>ประวัติการสแกน ({log.length})</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 360, overflowY: "auto" }}>
+              {log.map((x, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, fontSize: 13, background: x.ok ? "#f0fdf4" : x.warn ? "#fffbeb" : "#fef2f2", border: `1px solid ${x.ok ? "#dcfce7" : x.warn ? "#fef3c7" : "#fee2e2"}` }}>
+                  <span style={{ fontWeight: 700 }}>{x.ok ? "✅" : x.warn ? "⚠️" : "❌"} {x.name || x.msg}</span>
+                  <span style={{ fontFamily: "monospace", color: "#64748b", fontSize: 12 }}>{x.pno || ""} {new Date(x.at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const NotInFlashPage = () => {
     useEffect(() => { if (!isDemo) loadNotInFlash(); }, []);
     const source = isDemo ? notInFlash : notInFlashAll;
@@ -4409,6 +4505,7 @@ export default function FlashBackend() {
           {activePage === "report" && <ReportPage />}
           {activePage === "problems" && <ProblemPage />}
           {activePage === "notinflash" && <NotInFlashPage />}
+          {activePage === "returnreceive" && <ReturnReceivePage />}
           {activePage === "activity" && <ActivityLogPage />}
           {activePage === "summary" && <SummaryReportPage />}
           {activePage === "evaluate" && <EvaluatePage />}
