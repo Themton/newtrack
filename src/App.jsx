@@ -2136,6 +2136,7 @@ export default function FlashBackend() {
   // ═══ RETURN-RECEIVE PAGE — สแกนรับพัสดุตีกลับ ═══
   const ReturnReceivePage = () => {
     const [mode, setMode] = useState("scan");
+    const [listFilter, setListFilter] = useState("received");
     const [scan, setScan] = useState("");
     const [busy, setBusy] = useState(false);
     const [log, setLog] = useState([]);
@@ -2165,17 +2166,34 @@ export default function FlashBackend() {
       } catch { setTotalRet(null); setPending(null); }
     }, []);
     useEffect(() => { loadPending(); }, [loadPending]);
-    const loadReceived = useCallback(async () => {
+    const loadList = useCallback(async (filter) => {
       if (isDemo) { setReceived([]); return; }
       setLoadingList(true);
       try {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id,receiver_name,flash_pno,flash_status,returned_received_at,returned_received_by&returned_received=is.true&order=returned_received_at.desc&limit=300`, { headers: sb.headers() });
+        const RET = "&status=neq.cancelled&flash_status=ilike.*%E0%B8%95%E0%B8%B5%E0%B8%81%E0%B8%A5%E0%B8%B1%E0%B8%9A*";
+        let q;
+        if (filter === "received") q = `${RET}&returned_received=is.true&order=returned_received_at.desc`;
+        else if (filter === "pending") q = `${RET}&returned_received=not.is.true&order=flash_updated_at.desc.nullslast`;
+        else q = `${RET}&order=created_at.desc`;
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id,receiver_name,flash_pno,flash_status,returned_received,returned_received_at,returned_received_by,created_at${q}&limit=500`, { headers: sb.headers() });
         const rows = await res.json();
         setReceived(Array.isArray(rows) ? rows : []);
       } catch { setReceived([]); }
       setLoadingList(false);
     }, []);
-    const goList = () => { setMode("list"); loadReceived(); };
+    const goList = (filter) => { setMode("list"); setListFilter(filter); loadList(filter); };
+
+    // ทำเครื่องหมายรับ จากในลิสต์ (ไม่ต้องสแกน)
+    const markFromList = async (p) => {
+      try {
+        const at = new Date().toISOString();
+        if (!isDemo) await sb.update("fx_parcels", p.id, { returned_received: true, returned_received_at: at, returned_received_by: userName });
+        setParcels(prev => prev.map(x => x.id === p.id ? { ...x, returned_received: true, returned_received_at: at, returned_received_by: userName } : x));
+        setPending(n => typeof n === "number" ? Math.max(0, n - 1) : n);
+        setReceived(prev => listFilter === "pending" ? prev.filter(x => x.id !== p.id) : prev.map(x => x.id === p.id ? { ...x, returned_received: true, returned_received_at: at, returned_received_by: userName } : x));
+        showToast("รับเข้าร้านแล้ว");
+      } catch (e) { uiAlert("รับไม่สำเร็จ: " + e.message); }
+    };
 
     // เสียง: ok = 2 โน้ตสูงขึ้น (สำเร็จ), warn = โน้ตกลางสั้น (ซ้ำ), err = 2 โน้ตต่ำ (ไม่เจอ)
     const beep = (type) => {
@@ -2251,7 +2269,7 @@ export default function FlashBackend() {
       if (!window.confirm(`ยกเลิกการรับของ "${p.receiver_name}" (${p.flash_pno || ""})?\nรายการจะกลับไปเป็น "ยังไม่รับ"`)) return;
       try {
         if (!isDemo) await sb.update("fx_parcels", p.id, { returned_received: false, returned_received_at: null, returned_received_by: null });
-        setReceived(prev => prev.filter(x => x.id !== p.id));
+        setReceived(prev => listFilter === "received" ? prev.filter(x => x.id !== p.id) : prev.map(x => x.id === p.id ? { ...x, returned_received: false, returned_received_at: null, returned_received_by: null } : x));
         setParcels(prev => prev.map(x => x.id === p.id ? { ...x, returned_received: false, returned_received_at: null, returned_received_by: null } : x));
         setPending(n => typeof n === "number" ? n + 1 : n);
         showToast("ยกเลิกการรับแล้ว");
@@ -2273,13 +2291,13 @@ export default function FlashBackend() {
 
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <button onClick={() => setMode("scan")} style={tabBtn(mode === "scan")}>📥 สแกนรับ</button>
-          <button onClick={goList} style={tabBtn(mode === "list")}>📋 รายการที่รับแล้ว</button>
+          <button onClick={() => goList("received")} style={tabBtn(mode === "list")}>📋 รายการ</button>
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-          <div style={{ flex: 1, minWidth: 120, background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#4338ca", fontWeight: 700 }}>📦 ตีกลับทั้งหมด</div><div style={{ fontSize: 26, fontWeight: 800, color: "#3730a3" }}>{totalRet == null ? "—" : totalRet}</div></div>
-          <div style={{ flex: 1, minWidth: 120, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#047857", fontWeight: 700 }}>✅ รับเข้าร้านแล้ว</div><div style={{ fontSize: 26, fontWeight: 800, color: "#065f46" }}>{(totalRet == null || pending == null) ? "—" : Math.max(0, totalRet - pending)}</div></div>
-          <div style={{ flex: 1, minWidth: 120, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#b45309", fontWeight: 700 }}>🚚 ยังไม่ถึงร้าน</div><div style={{ fontSize: 26, fontWeight: 800, color: "#92400e" }}>{pending == null ? "—" : pending}</div></div>
+          <div onClick={() => goList("all")} style={{ flex: 1, minWidth: 120, background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 12, padding: "12px 16px", cursor: "pointer", boxShadow: mode === "list" && listFilter === "all" ? "0 0 0 2.5px #6366f1" : "none" }}><div style={{ fontSize: 12, color: "#4338ca", fontWeight: 700 }}>📦 ตีกลับทั้งหมด</div><div style={{ fontSize: 26, fontWeight: 800, color: "#3730a3" }}>{totalRet == null ? "—" : totalRet}</div><div style={{ fontSize: 11, color: "#6366f1", fontWeight: 700, marginTop: 2 }}>คลิกดูรายการ ›</div></div>
+          <div onClick={() => goList("received")} style={{ flex: 1, minWidth: 120, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, padding: "12px 16px", cursor: "pointer", boxShadow: mode === "list" && listFilter === "received" ? "0 0 0 2.5px #10b981" : "none" }}><div style={{ fontSize: 12, color: "#047857", fontWeight: 700 }}>✅ รับเข้าร้านแล้ว</div><div style={{ fontSize: 26, fontWeight: 800, color: "#065f46" }}>{(totalRet == null || pending == null) ? "—" : Math.max(0, totalRet - pending)}</div><div style={{ fontSize: 11, color: "#059669", fontWeight: 700, marginTop: 2 }}>คลิกดูรายการ ›</div></div>
+          <div onClick={() => goList("pending")} style={{ flex: 1, minWidth: 120, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px", cursor: "pointer", boxShadow: mode === "list" && listFilter === "pending" ? "0 0 0 2.5px #f59e0b" : "none" }}><div style={{ fontSize: 12, color: "#b45309", fontWeight: 700 }}>🚚 ยังไม่ถึงร้าน</div><div style={{ fontSize: 26, fontWeight: 800, color: "#92400e" }}>{pending == null ? "—" : pending}</div><div style={{ fontSize: 11, color: "#d97706", fontWeight: 700, marginTop: 2 }}>คลิกดูรายการ ›</div></div>
         </div>
         <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 16 }}>สแกนรับรอบนี้: <b style={{ color: "#065f46" }}>{okCount}</b> ใบ</div>
 
@@ -2312,20 +2330,27 @@ export default function FlashBackend() {
         </>) : (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b" }}>รับแล้วทั้งหมด {received.length} ใบ · วันนี้ {todayCount} ใบ</div>
-              <button onClick={loadReceived} disabled={loadingList} style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 12.5, cursor: loadingList ? "default" : "pointer" }}>{loadingList ? "⟳ กำลังโหลด..." : "🔄 รีเฟรช"}</button>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b" }}>{listFilter === "received" ? `รับเข้าร้านแล้ว ${received.length} ใบ · วันนี้ ${todayCount} ใบ` : listFilter === "pending" ? `ยังไม่ถึงร้าน ${received.length} ใบ` : `ตีกลับทั้งหมด ${received.length} ใบ`}</div>
+              <button onClick={() => loadList(listFilter)} disabled={loadingList} style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 12.5, cursor: loadingList ? "default" : "pointer" }}>{loadingList ? "⟳ กำลังโหลด..." : "🔄 รีเฟรช"}</button>
             </div>
-            {received.length === 0 && !loadingList && <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: 50, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ marginTop: 10, fontWeight: 600 }}>ยังไม่มีรายการที่รับ</div></div>}
+            {received.length === 0 && !loadingList && <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: 50, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ marginTop: 10, fontWeight: 600 }}>ไม่มีรายการ</div></div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {received.map(p => (
-                <div key={p.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #d1fae5", borderLeft: "4px solid #10b981", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: 14.5 }}>{p.receiver_name} <span style={{ fontFamily: "monospace", fontSize: 12, color: "#4f46e5", fontWeight: 600, marginLeft: 6 }}>{p.flash_pno}</span></div>
-                    <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>📅 {p.returned_received_at ? new Date(p.returned_received_at).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}{p.returned_received_by ? ` · 👤 ${p.returned_received_by}` : ""}</div>
+              {received.map(p => {
+                const rec = p.returned_received;
+                return (
+                  <div key={p.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", borderLeft: `4px solid ${rec ? "#10b981" : "#f59e0b"}`, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 14.5 }}>{p.receiver_name} <span style={{ fontFamily: "monospace", fontSize: 12, color: "#4f46e5", fontWeight: 600, marginLeft: 6 }}>{p.flash_pno}</span></div>
+                      {rec
+                        ? <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>✅ รับแล้ว {p.returned_received_at ? new Date(p.returned_received_at).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}{p.returned_received_by ? ` · 👤 ${p.returned_received_by}` : ""}</div>
+                        : <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 3 }}>🚚 ยังไม่ถึงร้าน · {cleanFlashStatus(p.flash_status)}</div>}
+                    </div>
+                    {rec
+                      ? <button onClick={() => undoReceive(p)} style={{ padding: "7px 14px", borderRadius: 8, background: "#fff", border: "1px solid #fca5a5", color: "#dc2626", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>↩️ ยกเลิกการรับ</button>
+                      : <button onClick={() => markFromList(p)} style={{ padding: "7px 14px", borderRadius: 8, background: "#059669", border: "none", color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>✓ รับเข้าร้าน</button>}
                   </div>
-                  <button onClick={() => undoReceive(p)} style={{ padding: "7px 14px", borderRadius: 8, background: "#fff", border: "1px solid #fca5a5", color: "#dc2626", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>↩️ ยกเลิกการรับ</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
