@@ -2147,6 +2147,7 @@ export default function FlashBackend() {
     const scanTimer = useRef(null);
     const lastKey = useRef(0);
     const fastChars = useRef(0);
+    const seen = useRef(new Map());
     const userName = user?.display_name || user?.username || "";
     useEffect(() => { if (mode === "scan") inputRef.current?.focus(); }, [mode]);
     const loadPending = useCallback(async () => {
@@ -2198,6 +2199,13 @@ export default function FlashBackend() {
       setScan("");
       if (!num || busy) { inputRef.current?.focus(); return; }
       setBusy(true);
+      // ยิงเลขเดิมซ้ำในรอบนี้ → เตือนทันที (ไม่ต้องเช็คฐานข้อมูล)
+      if (seen.current.has(num)) {
+        const prev = seen.current.get(num);
+        beep("warn");
+        setLog(l => [{ warn: true, dup: true, num, name: prev.name, when: prev.at, at: Date.now() }, ...l]);
+        setBusy(false); inputRef.current?.focus(); return;
+      }
       try {
         let found = null;
         if (isDemo) {
@@ -2209,12 +2217,13 @@ export default function FlashBackend() {
         if (!found) {
           beep("err"); setLog(l => [{ ok: false, num, msg: `ไม่พบเลขนี้ในระบบ`, at: Date.now() }, ...l]);
         } else if (found.returned_received) {
-          beep("warn"); setLog(l => [{ warn: true, num, name: found.receiver_name, pno: found.flash_pno, when: found.returned_received_at, at: Date.now() }, ...l]);
+          beep("warn"); seen.current.set(num, { at: Date.now(), name: found.receiver_name }); setLog(l => [{ warn: true, num, name: found.receiver_name, pno: found.flash_pno, when: found.returned_received_at, at: Date.now() }, ...l]);
         } else {
           const at = new Date().toISOString();
           if (!isDemo) await sb.update("fx_parcels", found.id, { returned_received: true, returned_received_at: at, returned_received_by: userName });
           setParcels(prev => prev.map(p => p.id === found.id ? { ...p, returned_received: true, returned_received_at: at, returned_received_by: userName } : p));
           beep("ok");
+          seen.current.set(num, { at: Date.now(), name: found.receiver_name });
           setLog(l => [{ ok: true, num, name: found.receiver_name, pno: found.flash_pno, status: cleanFlashStatus(found.flash_status), at: Date.now() }, ...l]);
           setPending(n => typeof n === "number" ? Math.max(0, n - 1) : n);
         }
@@ -2282,7 +2291,7 @@ export default function FlashBackend() {
             <div style={{ marginTop: 14, padding: "16px 20px", borderRadius: 12, background: latest.ok ? "#d1fae5" : latest.warn ? "#fef3c7" : "#fee2e2", border: `1px solid ${latest.ok ? "#6ee7b7" : latest.warn ? "#fcd34d" : "#fca5a5"}` }}>
               {latest.num && <div style={{ fontFamily: "monospace", fontSize: 28, fontWeight: 800, letterSpacing: 1, color: latest.ok ? "#065f46" : latest.warn ? "#92400e" : "#991b1b", wordBreak: "break-all", lineHeight: 1.15 }}>{latest.num}</div>}
               {latest.ok ? <div style={{ marginTop: 6 }}><div style={{ fontSize: 18, fontWeight: 800, color: "#065f46" }}>✅ รับตีกลับแล้ว</div><div style={{ marginTop: 2, fontSize: 15, fontWeight: 700 }}>{latest.name}</div>{latest.status && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>{latest.status}</div>}</div>
-                : latest.warn ? <div style={{ marginTop: 6 }}><div style={{ fontSize: 18, fontWeight: 800, color: "#92400e" }}>⚠️ ใบนี้รับไปแล้ว</div><div style={{ marginTop: 2, fontSize: 15, fontWeight: 700 }}>{latest.name}</div>{latest.when && <div style={{ fontSize: 12.5, color: "#92400e", marginTop: 2 }}>รับเมื่อ {new Date(latest.when).toLocaleString("th-TH")}</div>}</div>
+                : latest.warn ? <div style={{ marginTop: 6 }}><div style={{ fontSize: 18, fontWeight: 800, color: "#92400e" }}>{latest.dup ? "🔁 ยิงซ้ำ! เลขนี้เพิ่งยิงไปแล้ว" : "⚠️ ใบนี้รับไปแล้ว"}</div><div style={{ marginTop: 2, fontSize: 15, fontWeight: 700 }}>{latest.name}</div>{latest.when && <div style={{ fontSize: 12.5, color: "#92400e", marginTop: 2 }}>{latest.dup ? "ยิงไปเมื่อ " : "รับเมื่อ "}{new Date(latest.when).toLocaleString("th-TH")}</div>}</div>
                   : <div style={{ marginTop: 6, fontSize: 17, fontWeight: 800, color: "#991b1b" }}>❌ {latest.msg}</div>}
             </div>
           )}
