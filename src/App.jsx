@@ -2143,6 +2143,9 @@ export default function FlashBackend() {
     const [received, setReceived] = useState([]);
     const [loadingList, setLoadingList] = useState(false);
     const inputRef = useRef(null);
+    const scanTimer = useRef(null);
+    const lastKey = useRef(0);
+    const fastChars = useRef(0);
     const userName = user?.display_name || user?.username || "";
     useEffect(() => { if (mode === "scan") inputRef.current?.focus(); }, [mode]);
     const loadPending = useCallback(async () => {
@@ -2217,6 +2220,18 @@ export default function FlashBackend() {
       inputRef.current?.focus();
     };
 
+    // จับการยิงบาร์โค้ด: ตัวเลขเข้าเร็ว (<50ms/ตัว) แล้วหยุด ~100ms = ยิงจบ → รันเอง ไม่ต้องกด Enter
+    const onScanChange = (val) => {
+      const now = Date.now();
+      const gap = now - lastKey.current;
+      lastKey.current = now;
+      fastChars.current = gap < 50 ? fastChars.current + 1 : 0;
+      setScan(val);
+      if (scanTimer.current) clearTimeout(scanTimer.current);
+      scanTimer.current = setTimeout(() => {
+        if (val.trim().length >= 8 && fastChars.current >= 4) { fastChars.current = 0; handleScan(val); }
+      }, 110);
+    };
     const undoReceive = async (p) => {
       if (!window.confirm(`ยกเลิกการรับของ "${p.receiver_name}" (${p.flash_pno || ""})?\nรายการจะกลับไปเป็น "ยังไม่รับ"`)) return;
       try {
@@ -2252,7 +2267,7 @@ export default function FlashBackend() {
         </div>
 
         {mode === "scan" ? (<>
-          <input ref={inputRef} value={scan} onChange={e => setScan(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleScan(scan); }} placeholder="🔫 ยิงบาร์โค้ด / พิมพ์เลขพัสดุ แล้ว Enter" autoFocus disabled={busy}
+          <input ref={inputRef} value={scan} onChange={e => onScanChange(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleScan(scan); }} placeholder="🔫 ยิงบาร์โค้ดได้เลย (ยิงจบรันเอง) — หรือพิมพ์เลข + Enter" autoFocus disabled={busy}
             style={{ width: "100%", boxSizing: "border-box", padding: "16px 18px", fontSize: 18, fontWeight: 700, fontFamily: "monospace", letterSpacing: 1, border: "2.5px solid #6366f1", borderRadius: 12, outline: "none", background: busy ? "#f1f5f9" : "#fff" }} />
 
           {latest && (
