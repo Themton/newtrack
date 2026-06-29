@@ -2135,25 +2135,55 @@ export default function FlashBackend() {
   // ═══ แฟลชยังไม่เข้ารับ — พัสดุสร้างเลขแล้วแต่ Flash ยังไม่สแกนรับ ═══
   // ═══ RETURN-RECEIVE PAGE — สแกนรับพัสดุตีกลับ ═══
   const ReturnReceivePage = () => {
+    const [mode, setMode] = useState("scan");
     const [scan, setScan] = useState("");
     const [busy, setBusy] = useState(false);
     const [log, setLog] = useState([]);
     const [pending, setPending] = useState(null);
+    const [received, setReceived] = useState([]);
+    const [loadingList, setLoadingList] = useState(false);
     const inputRef = useRef(null);
     const userName = user?.display_name || user?.username || "";
-    useEffect(() => { inputRef.current?.focus(); }, []);
-    useEffect(() => {
+    useEffect(() => { if (mode === "scan") inputRef.current?.focus(); }, [mode]);
+    const loadPending = useCallback(async () => {
       if (isDemo) { setPending(0); return; }
-      (async () => {
-        try {
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id&status=neq.cancelled&flash_status=ilike.*%E0%B8%95%E0%B8%B5%E0%B8%81%E0%B8%A5%E0%B8%B1%E0%B8%9A*&returned_received=not.is.true`, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-0" } });
-          const cr = res.headers.get("content-range") || "";
-          const total = cr.includes("/") ? parseInt(cr.split("/")[1]) : 0;
-          setPending(isNaN(total) ? null : total);
-        } catch { setPending(null); }
-      })();
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id&status=neq.cancelled&flash_status=ilike.*%E0%B8%95%E0%B8%B5%E0%B8%81%E0%B8%A5%E0%B8%B1%E0%B8%9A*&returned_received=not.is.true`, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-0" } });
+        const cr = res.headers.get("content-range") || "";
+        const total = cr.includes("/") ? parseInt(cr.split("/")[1]) : 0;
+        setPending(isNaN(total) ? null : total);
+      } catch { setPending(null); }
     }, []);
-    const beep = (ok) => { try { const C = window.AudioContext || window.webkitAudioContext; const ctx = new C(); const o = ctx.createOscillator(); const g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value = ok ? 880 : 200; o.type = "square"; g.gain.value = 0.08; o.start(); setTimeout(() => { o.stop(); ctx.close(); }, ok ? 110 : 320); } catch {} };
+    useEffect(() => { loadPending(); }, [loadPending]);
+    const loadReceived = useCallback(async () => {
+      if (isDemo) { setReceived([]); return; }
+      setLoadingList(true);
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id,receiver_name,flash_pno,flash_status,returned_received_at,returned_received_by&returned_received=is.true&order=returned_received_at.desc&limit=300`, { headers: sb.headers() });
+        const rows = await res.json();
+        setReceived(Array.isArray(rows) ? rows : []);
+      } catch { setReceived([]); }
+      setLoadingList(false);
+    }, []);
+    const goList = () => { setMode("list"); loadReceived(); };
+
+    // เสียง: ok = 2 โน้ตสูงขึ้น (สำเร็จ), warn = โน้ตกลางสั้น (ซ้ำ), err = 2 โน้ตต่ำ (ไม่เจอ)
+    const beep = (type) => {
+      try {
+        const C = window.AudioContext || window.webkitAudioContext; const ctx = new C();
+        const tone = (freq, start, dur, gain = 0.2) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.connect(g); g.connect(ctx.destination); o.type = "square"; o.frequency.value = freq;
+          g.gain.setValueAtTime(gain, ctx.currentTime + start);
+          o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur);
+        };
+        if (type === "ok") { tone(880, 0, 0.09); tone(1320, 0.11, 0.13); }
+        else if (type === "warn") { tone(560, 0, 0.20, 0.18); }
+        else { tone(200, 0, 0.13); tone(150, 0.15, 0.24); }
+        setTimeout(() => ctx.close(), 700);
+      } catch {}
+    };
+
     const handleScan = async (raw) => {
       const num = (raw || "").trim().toUpperCase();
       setScan("");
@@ -2168,31 +2198,52 @@ export default function FlashBackend() {
           found = rows && rows[0];
         }
         if (!found) {
-          beep(false); setLog(l => [{ ok: false, msg: `ไม่พบเลข ${num}`, at: Date.now() }, ...l]);
+          beep("err"); setLog(l => [{ ok: false, msg: `ไม่พบเลข ${num}`, at: Date.now() }, ...l]);
         } else if (found.returned_received) {
-          beep(false); setLog(l => [{ warn: true, name: found.receiver_name, pno: found.flash_pno, when: found.returned_received_at, at: Date.now() }, ...l]);
+          beep("warn"); setLog(l => [{ warn: true, name: found.receiver_name, pno: found.flash_pno, when: found.returned_received_at, at: Date.now() }, ...l]);
         } else {
           const at = new Date().toISOString();
           if (!isDemo) await sb.update("fx_parcels", found.id, { returned_received: true, returned_received_at: at, returned_received_by: userName });
           setParcels(prev => prev.map(p => p.id === found.id ? { ...p, returned_received: true, returned_received_at: at, returned_received_by: userName } : p));
-          beep(true);
+          beep("ok");
           setLog(l => [{ ok: true, name: found.receiver_name, pno: found.flash_pno, status: cleanFlashStatus(found.flash_status), at: Date.now() }, ...l]);
           setPending(n => typeof n === "number" ? Math.max(0, n - 1) : n);
         }
       } catch (e) {
         const msg = /returned_received/.test(e.message || "") ? "ยังไม่ได้เพิ่มคอลัมน์ในฐานข้อมูล — รัน SQL ก่อน (supabase-returned-received.sql)" : ("ผิดพลาด: " + e.message);
-        beep(false); setLog(l => [{ ok: false, msg, at: Date.now() }, ...l]);
+        beep("err"); setLog(l => [{ ok: false, msg, at: Date.now() }, ...l]);
       }
       setBusy(false);
       inputRef.current?.focus();
     };
+
+    const undoReceive = async (p) => {
+      if (!window.confirm(`ยกเลิกการรับของ "${p.receiver_name}" (${p.flash_pno || ""})?\nรายการจะกลับไปเป็น "ยังไม่รับ"`)) return;
+      try {
+        if (!isDemo) await sb.update("fx_parcels", p.id, { returned_received: false, returned_received_at: null, returned_received_by: null });
+        setReceived(prev => prev.filter(x => x.id !== p.id));
+        setParcels(prev => prev.map(x => x.id === p.id ? { ...x, returned_received: false, returned_received_at: null, returned_received_by: null } : x));
+        setPending(n => typeof n === "number" ? n + 1 : n);
+        showToast("ยกเลิกการรับแล้ว");
+      } catch (e) { uiAlert("ยกเลิกไม่สำเร็จ: " + e.message); }
+    };
+
     const okCount = log.filter(x => x.ok).length;
     const latest = log[0];
+    const todayStr = new Date().toDateString();
+    const todayCount = received.filter(r => r.returned_received_at && new Date(r.returned_received_at).toDateString() === todayStr).length;
+    const tabBtn = (active) => ({ padding: "10px 18px", borderRadius: 10, border: active ? "none" : "1.5px solid #e2e8f0", background: active ? "#4f46e5" : "#fff", color: active ? "#fff" : "#475569", fontWeight: 700, fontSize: 14, cursor: "pointer" });
+
     return (
       <div style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
-        <div style={{ marginBottom: 18 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📥 สแกนรับพัสดุตีกลับ</h2>
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>🔁 รับพัสดุตีกลับ</h2>
           <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ยิงบาร์โค้ดหรือพิมพ์เลขพัสดุที่ตีกลับมาถึงร้าน แล้วกด Enter — สแกนเลขเดิมหรือเลข return ก็ได้</p>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <button onClick={() => setMode("scan")} style={tabBtn(mode === "scan")}>📥 สแกนรับ</button>
+          <button onClick={goList} style={tabBtn(mode === "list")}>📋 รายการที่รับแล้ว</button>
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
@@ -2200,25 +2251,46 @@ export default function FlashBackend() {
           <div style={{ flex: 1, minWidth: 140, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px" }}><div style={{ fontSize: 12, color: "#b45309", fontWeight: 700 }}>📦 ตีกลับที่ยังไม่รับ</div><div style={{ fontSize: 26, fontWeight: 800, color: "#92400e" }}>{pending == null ? "—" : pending}</div></div>
         </div>
 
-        <input ref={inputRef} value={scan} onChange={e => setScan(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleScan(scan); }} placeholder="🔫 ยิงบาร์โค้ด / พิมพ์เลขพัสดุ แล้ว Enter" autoFocus disabled={busy}
-          style={{ width: "100%", boxSizing: "border-box", padding: "16px 18px", fontSize: 18, fontWeight: 700, fontFamily: "monospace", letterSpacing: 1, border: "2.5px solid #6366f1", borderRadius: 12, outline: "none", background: busy ? "#f1f5f9" : "#fff" }} />
+        {mode === "scan" ? (<>
+          <input ref={inputRef} value={scan} onChange={e => setScan(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleScan(scan); }} placeholder="🔫 ยิงบาร์โค้ด / พิมพ์เลขพัสดุ แล้ว Enter" autoFocus disabled={busy}
+            style={{ width: "100%", boxSizing: "border-box", padding: "16px 18px", fontSize: 18, fontWeight: 700, fontFamily: "monospace", letterSpacing: 1, border: "2.5px solid #6366f1", borderRadius: 12, outline: "none", background: busy ? "#f1f5f9" : "#fff" }} />
 
-        {latest && (
-          <div style={{ marginTop: 14, padding: "16px 20px", borderRadius: 12, background: latest.ok ? "#d1fae5" : latest.warn ? "#fef3c7" : "#fee2e2", border: `1px solid ${latest.ok ? "#6ee7b7" : latest.warn ? "#fcd34d" : "#fca5a5"}` }}>
-            {latest.ok ? <div><div style={{ fontSize: 18, fontWeight: 800, color: "#065f46" }}>✅ รับตีกลับแล้ว</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 700 }}>{latest.name} <span style={{ fontFamily: "monospace", color: "#4f46e5", fontSize: 13 }}>{latest.pno}</span></div>{latest.status && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>{latest.status}</div>}</div>
-              : latest.warn ? <div><div style={{ fontSize: 18, fontWeight: 800, color: "#92400e" }}>⚠️ ใบนี้รับไปแล้ว</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 700 }}>{latest.name} <span style={{ fontFamily: "monospace", color: "#4f46e5", fontSize: 13 }}>{latest.pno}</span></div>{latest.when && <div style={{ fontSize: 12.5, color: "#92400e", marginTop: 2 }}>รับเมื่อ {new Date(latest.when).toLocaleString("th-TH")}</div>}</div>
-                : <div style={{ fontSize: 17, fontWeight: 800, color: "#991b1b" }}>❌ {latest.msg}</div>}
-          </div>
-        )}
+          {latest && (
+            <div style={{ marginTop: 14, padding: "16px 20px", borderRadius: 12, background: latest.ok ? "#d1fae5" : latest.warn ? "#fef3c7" : "#fee2e2", border: `1px solid ${latest.ok ? "#6ee7b7" : latest.warn ? "#fcd34d" : "#fca5a5"}` }}>
+              {latest.ok ? <div><div style={{ fontSize: 18, fontWeight: 800, color: "#065f46" }}>✅ รับตีกลับแล้ว</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 700 }}>{latest.name} <span style={{ fontFamily: "monospace", color: "#4f46e5", fontSize: 13 }}>{latest.pno}</span></div>{latest.status && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>{latest.status}</div>}</div>
+                : latest.warn ? <div><div style={{ fontSize: 18, fontWeight: 800, color: "#92400e" }}>⚠️ ใบนี้รับไปแล้ว</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 700 }}>{latest.name} <span style={{ fontFamily: "monospace", color: "#4f46e5", fontSize: 13 }}>{latest.pno}</span></div>{latest.when && <div style={{ fontSize: 12.5, color: "#92400e", marginTop: 2 }}>รับเมื่อ {new Date(latest.when).toLocaleString("th-TH")}</div>}</div>
+                  : <div style={{ fontSize: 17, fontWeight: 800, color: "#991b1b" }}>❌ {latest.msg}</div>}
+            </div>
+          )}
 
-        {log.length > 0 && (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b", marginBottom: 8 }}>ประวัติการสแกน ({log.length})</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 360, overflowY: "auto" }}>
-              {log.map((x, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, fontSize: 13, background: x.ok ? "#f0fdf4" : x.warn ? "#fffbeb" : "#fef2f2", border: `1px solid ${x.ok ? "#dcfce7" : x.warn ? "#fef3c7" : "#fee2e2"}` }}>
-                  <span style={{ fontWeight: 700 }}>{x.ok ? "✅" : x.warn ? "⚠️" : "❌"} {x.name || x.msg}</span>
-                  <span style={{ fontFamily: "monospace", color: "#64748b", fontSize: 12 }}>{x.pno || ""} {new Date(x.at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}</span>
+          {log.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b", marginBottom: 8 }}>ประวัติการสแกน ({log.length})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 360, overflowY: "auto" }}>
+                {log.map((x, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, fontSize: 13, background: x.ok ? "#f0fdf4" : x.warn ? "#fffbeb" : "#fef2f2", border: `1px solid ${x.ok ? "#dcfce7" : x.warn ? "#fef3c7" : "#fee2e2"}` }}>
+                    <span style={{ fontWeight: 700 }}>{x.ok ? "✅" : x.warn ? "⚠️" : "❌"} {x.name || x.msg}</span>
+                    <span style={{ fontFamily: "monospace", color: "#64748b", fontSize: 12 }}>{x.pno || ""} {new Date(x.at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>) : (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b" }}>รับแล้วทั้งหมด {received.length} ใบ · วันนี้ {todayCount} ใบ</div>
+              <button onClick={loadReceived} disabled={loadingList} style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 12.5, cursor: loadingList ? "default" : "pointer" }}>{loadingList ? "⟳ กำลังโหลด..." : "🔄 รีเฟรช"}</button>
+            </div>
+            {received.length === 0 && !loadingList && <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: 50, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ marginTop: 10, fontWeight: 600 }}>ยังไม่มีรายการที่รับ</div></div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {received.map(p => (
+                <div key={p.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #d1fae5", borderLeft: "4px solid #10b981", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 14.5 }}>{p.receiver_name} <span style={{ fontFamily: "monospace", fontSize: 12, color: "#4f46e5", fontWeight: 600, marginLeft: 6 }}>{p.flash_pno}</span></div>
+                    <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>📅 {p.returned_received_at ? new Date(p.returned_received_at).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}{p.returned_received_by ? ` · 👤 ${p.returned_received_by}` : ""}</div>
+                  </div>
+                  <button onClick={() => undoReceive(p)} style={{ padding: "7px 14px", borderRadius: 8, background: "#fff", border: "1px solid #fca5a5", color: "#dc2626", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>↩️ ยกเลิกการรับ</button>
                 </div>
               ))}
             </div>
