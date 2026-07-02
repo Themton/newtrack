@@ -4167,15 +4167,41 @@ export default function FlashBackend() {
   // ═══ EXPORT เลขพัสดุ PAGE — รายการเลข Tracking ล้วน ๆ (คัดลอก / ดาวน์โหลด .txt) ═══
   const ExportPnoPage = () => {
     const I = { padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit" };
+    const curMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+    const [pMonth, setPMonth] = useState(curMonth);
+    const [rows, setRows] = useState(null);
+    const [loadingM, setLoadingM] = useState(false);
+    const loadMonth = useCallback(async (m) => {
+      if (isDemo) { setRows(demoData); return; }
+      setLoadingM(true);
+      try {
+        const [yy, mm] = m.split("-").map(Number);
+        const start = new Date(yy, mm - 1, 1).toISOString();
+        const end = new Date(yy, mm, 1).toISOString();
+        let all = [], pg = 0;
+        while (pg < 40) {
+          const from = pg * 1000;
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
+          const data = await res.json();
+          if (!Array.isArray(data) || !data.length) break;
+          all = all.concat(data); if (data.length < 1000) break; pg++;
+        }
+        setRows(all);
+      } catch { setRows([]); }
+      setLoadingM(false);
+    }, []);
+    useEffect(() => { loadMonth(pMonth); }, [pMonth, loadMonth]);
+    const goPrevMonth = () => { const [y, m] = pMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setPMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); };
+    const monthLabel = (() => { const [y, m] = pMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
 
-    // กรองเฉพาะพัสดุที่มีเลข Tracking และไม่ถูกยกเลิก
+    // กรองเฉพาะพัสดุที่มีเลข Tracking และไม่ถูกยกเลิก (จากเดือนที่โหลด)
     const list = useMemo(() => {
-      let l = parcels.filter(p => p.flash_pno && p.status !== "cancelled");
+      let l = (rows || []).filter(p => p.flash_pno && p.status !== "cancelled");
       if (pnoShop) l = l.filter(p => p.shop_id === pnoShop);
       if (pnoFrom) l = l.filter(p => new Date(p.created_at) >= new Date(pnoFrom));
       if (pnoTo) l = l.filter(p => new Date(p.created_at) <= new Date(pnoTo + "T23:59:59"));
       return l;
-    }, [parcels, pnoShop, pnoFrom, pnoTo]);
+    }, [rows, pnoShop, pnoFrom, pnoTo]);
 
     // เลขพัสดุไม่ซ้ำ (เรียงตามลำดับล่าสุดก่อน ตาม parcels ที่ sort created_at.desc แล้ว)
     const pnos = useMemo(() => {
@@ -4284,6 +4310,13 @@ export default function FlashBackend() {
 
           {/* Filters */}
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>เดือน:</span>
+              <button onClick={() => setPMonth(curMonth())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: pMonth === curMonth() ? "#4f46e5" : "#fff", color: pMonth === curMonth() ? "#fff" : "#475569", border: pMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
+              <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
+              <input type="month" value={pMonth} onChange={e => e.target.value && setPMonth(e.target.value)} style={{ ...I, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {monthLabel}{loadingM ? " · กำลังโหลด…" : ` · ${(rows || []).length} รายการ`}</span>
+            </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ร้านค้า</label>
@@ -4293,11 +4326,11 @@ export default function FlashBackend() {
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ตั้งแต่วันที่</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ตั้งแต่วันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
                 <input type="date" value={pnoFrom} onChange={e => setPnoFrom(e.target.value)} style={I} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ถึงวันที่</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ถึงวันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
                 <input type="date" value={pnoTo} onChange={e => setPnoTo(e.target.value)} style={I} />
               </div>
               <div>
