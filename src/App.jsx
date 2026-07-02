@@ -3928,8 +3928,36 @@ export default function FlashBackend() {
       return s || "(ไม่ระบุ)";
     };
 
+    const curMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+    const [eMonth, setEMonth] = useState(curMonth);
+    const [rows, setRows] = useState(null);
+    const [loadingM, setLoadingM] = useState(false);
+    const loadMonth = useCallback(async (m) => {
+      if (isDemo) { setRows(demoData); return; }
+      setLoadingM(true);
+      try {
+        const [yy, mm] = m.split("-").map(Number);
+        const start = new Date(yy, mm - 1, 1).toISOString();
+        const end = new Date(yy, mm, 1).toISOString();
+        let all = [], pg = 0;
+        while (pg < 40) {
+          const from = pg * 1000;
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
+          const data = await res.json();
+          if (!Array.isArray(data) || !data.length) break;
+          all = all.concat(data); if (data.length < 1000) break; pg++;
+        }
+        setRows(all);
+      } catch { setRows([]); }
+      setLoadingM(false);
+    }, []);
+    useEffect(() => { loadMonth(eMonth); }, [eMonth, loadMonth]);
+    const goPrevMonth = () => { const [y, m] = eMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setEMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); };
+    const monthLabel = (() => { const [y, m] = eMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
+    const src = rows || [];
+
     const getExportData = () => {
-      let list = parcels;
+      let list = src;
       if (exportShop) list = list.filter(p => p.shop_id === exportShop);
       if (exportStaff) list = list.filter(p => (p.sale_person || p.created_by_name) === exportStaff);
       if (exportProduct) list = list.filter(p => productType(p.remark) === exportProduct);
@@ -3938,10 +3966,10 @@ export default function FlashBackend() {
       return list;
     };
 
-    const productNames = useMemo(() => [...new Set(parcels.map(p => productType(p.remark)).filter(Boolean))].sort(), [parcels]);
+    const productNames = useMemo(() => [...new Set(src.map(p => productType(p.remark)).filter(Boolean))].sort(), [src]);
 
     // รายชื่อพนักงานทั้งหมด (SalesPerson จากไฟล์)
-    const staffNames = useMemo(() => [...new Set(parcels.map(p => p.sale_person || p.created_by_name).filter(Boolean))].sort(), [parcels]);
+    const staffNames = useMemo(() => [...new Set(src.map(p => p.sale_person || p.created_by_name).filter(Boolean))].sort(), [src]);
 
     // สรุปแยกพนักงาน (preview)
     const previewData = getExportData();
@@ -4068,6 +4096,13 @@ export default function FlashBackend() {
         <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
           {/* Filters */}
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>เดือน:</span>
+              <button onClick={() => setEMonth(curMonth())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: eMonth === curMonth() ? "#059669" : "#fff", color: eMonth === curMonth() ? "#fff" : "#475569", border: eMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
+              <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
+              <input type="month" value={eMonth} onChange={e => e.target.value && setEMonth(e.target.value)} style={{ ...I, cursor: "pointer" }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>📅 {monthLabel}{loadingM ? " · กำลังโหลด…" : ` · ${src.length} รายการ`}</span>
+            </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ร้านค้า</label>
@@ -4091,11 +4126,11 @@ export default function FlashBackend() {
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ตั้งแต่วันที่</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ตั้งแต่วันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
                 <input type="date" value={exportFrom} onChange={e => setExportFrom(e.target.value)} style={I} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ถึงวันที่</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ถึงวันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
                 <input type="date" value={exportTo} onChange={e => setExportTo(e.target.value)} style={I} />
               </div>
             </div>
