@@ -4000,7 +4000,7 @@ export default function FlashBackend() {
         "Customer FB/Line เฟส/ไลน์ลูกค้า", "SalesChannel ช่องทางจำหน่าย",
         "SalesPerson ชื่อแอดมิน", "SalePrice ราคาขาย",
         "COD* ยอดเก็บเงินปลายทาง", "Remark หมายเหตุ",
-        "Tracking", "Sort Code", "สถานะ", "ร้านค้า", "ผู้สร้างรายการ", "วันที่สร้าง", "ประเภทสินค้า",
+        "Tracking", "Sort Code", "สถานะ", "สถานะแฟลช", "รายละเอียดแฟลช", "อัปเดตแฟลชล่าสุด", "ร้านค้า", "ผู้สร้างรายการ", "วันที่สร้าง", "ประเภทสินค้า",
       ];
       const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
       const rows = data.map(p => {
@@ -4016,6 +4016,9 @@ export default function FlashBackend() {
           p.remark || "",
           p.flash_pno || "", p.flash_sort_code || "",
           statusMap[p.status] || p.status || "",
+          p.flash_status || "",
+          p.flash_detail || "",
+          p.flash_updated_at ? new Date(p.flash_updated_at).toLocaleString("th-TH") : "",
           shop?.name || "",
           p.created_by_name || "",
           new Date(p.created_at).toLocaleString("th-TH"),
