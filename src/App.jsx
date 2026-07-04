@@ -3953,6 +3953,11 @@ export default function FlashBackend() {
     }, []);
     useEffect(() => { loadMonth(eMonth); }, [eMonth, loadMonth]);
     const goPrevMonth = () => { const [y, m] = eMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setEMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); };
+    const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const fmtDay = (d) => `${monthOf(d)}-${String(d.getDate()).padStart(2, "0")}`;
+    const pickDay = (d) => { setEMonth(monthOf(d)); const s = fmtDay(d); setExportFrom(s); setExportTo(s); };
+    const allMonth = () => { setExportFrom(""); setExportTo(""); };
+    const isDay = (() => { const t = new Date(); const y = new Date(); y.setDate(y.getDate() - 1); if (exportFrom && exportFrom === exportTo) { if (exportFrom === fmtDay(t)) return "today"; if (exportFrom === fmtDay(y)) return "yest"; return "day"; } return "month"; })();
     const monthLabel = (() => { const [y, m] = eMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
     const src = rows || [];
 
@@ -4104,6 +4109,11 @@ export default function FlashBackend() {
               <button onClick={() => setEMonth(curMonth())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: eMonth === curMonth() ? "#059669" : "#fff", color: eMonth === curMonth() ? "#fff" : "#475569", border: eMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
               <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
               <input type="month" value={eMonth} onChange={e => e.target.value && setEMonth(e.target.value)} style={{ ...I, cursor: "pointer" }} />
+              <span style={{ width: 1, height: 24, background: "#e2e8f0", margin: "0 2px" }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>รายวัน:</span>
+              <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#059669" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
+              <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#059669" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
+              <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#059669" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>📅 {monthLabel}{loadingM ? " · กำลังโหลด…" : ` · ${src.length} รายการ`}</span>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
@@ -4230,6 +4240,11 @@ export default function FlashBackend() {
     }, []);
     useEffect(() => { loadMonth(pMonth); }, [pMonth, loadMonth]);
     const goPrevMonth = () => { const [y, m] = pMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setPMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); };
+    const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const fmtDay = (d) => `${monthOf(d)}-${String(d.getDate()).padStart(2, "0")}`;
+    const pickDay = (d) => { setPMonth(monthOf(d)); const s = fmtDay(d); setPnoFrom(s); setPnoTo(s); };
+    const allMonth = () => { setPnoFrom(""); setPnoTo(""); };
+    const isDay = (() => { const t = new Date(); const y = new Date(); y.setDate(y.getDate() - 1); if (pnoFrom && pnoFrom === pnoTo) { if (pnoFrom === fmtDay(t)) return "today"; if (pnoFrom === fmtDay(y)) return "yest"; return "day"; } return "month"; })();
     const monthLabel = (() => { const [y, m] = pMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
 
     // กรองเฉพาะพัสดุที่มีเลข Tracking และไม่ถูกยกเลิก (จากเดือนที่โหลด)
@@ -4353,6 +4368,11 @@ export default function FlashBackend() {
               <button onClick={() => setPMonth(curMonth())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: pMonth === curMonth() ? "#4f46e5" : "#fff", color: pMonth === curMonth() ? "#fff" : "#475569", border: pMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
               <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
               <input type="month" value={pMonth} onChange={e => e.target.value && setPMonth(e.target.value)} style={{ ...I, cursor: "pointer" }} />
+              <span style={{ width: 1, height: 24, background: "#e2e8f0", margin: "0 2px" }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>รายวัน:</span>
+              <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#4f46e5" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
+              <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#4f46e5" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
+              <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#4f46e5" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {monthLabel}{loadingM ? " · กำลังโหลด…" : ` · ${(rows || []).length} รายการ`}</span>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
