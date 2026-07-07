@@ -3932,13 +3932,19 @@ export default function FlashBackend() {
     const [eMonth, setEMonth] = useState(curMonth);
     const [rows, setRows] = useState(null);
     const [loadingM, setLoadingM] = useState(false);
-    const loadMonth = useCallback(async (m) => {
+    const loadMonth = useCallback(async (m, dFrom, dTo) => {
       if (isDemo) { setRows(demoData); return; }
       setLoadingM(true);
       try {
-        const [yy, mm] = m.split("-").map(Number);
-        const start = new Date(yy, mm - 1, 1).toISOString();
-        const end = new Date(yy, mm, 1).toISOString();
+        let start, end;
+        if (dFrom && dTo) { // เลือกวัน/ช่วง → ดึงเฉพาะช่วงนั้น (ลด egress)
+          start = new Date(dFrom + "T00:00:00").toISOString();
+          const e = new Date(dTo + "T00:00:00"); e.setDate(e.getDate() + 1); end = e.toISOString();
+        } else {
+          const [yy, mm] = m.split("-").map(Number);
+          start = new Date(yy, mm - 1, 1).toISOString();
+          end = new Date(yy, mm, 1).toISOString();
+        }
         let all = [], pg = 0;
         while (pg < 40) {
           const from = pg * 1000;
@@ -3951,8 +3957,8 @@ export default function FlashBackend() {
       } catch { setRows([]); }
       setLoadingM(false);
     }, []);
-    useEffect(() => { loadMonth(eMonth); }, [eMonth, loadMonth]);
-    const goPrevMonth = () => { const [y, m] = eMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setEMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); };
+    useEffect(() => { loadMonth(eMonth, exportFrom, exportTo); }, [eMonth, exportFrom, exportTo, loadMonth]);
+    const goPrevMonth = () => { const [y, m] = eMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setEMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); setExportFrom(""); setExportTo(""); };
     const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const fmtDay = (d) => `${monthOf(d)}-${String(d.getDate()).padStart(2, "0")}`;
     const pickDay = (d) => { setEMonth(monthOf(d)); const s = fmtDay(d); setExportFrom(s); setExportTo(s); };
@@ -4106,9 +4112,9 @@ export default function FlashBackend() {
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>เดือน:</span>
-              <button onClick={() => setEMonth(curMonth())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: eMonth === curMonth() ? "#059669" : "#fff", color: eMonth === curMonth() ? "#fff" : "#475569", border: eMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
+              <button onClick={() => { setEMonth(curMonth()); setExportFrom(""); setExportTo(""); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: (eMonth === curMonth() && !exportFrom) ? "#059669" : "#fff", color: eMonth === curMonth() ? "#fff" : "#475569", border: eMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
               <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
-              <input type="month" value={eMonth} onChange={e => e.target.value && setEMonth(e.target.value)} style={{ ...I, cursor: "pointer" }} />
+              <input type="month" value={eMonth} onChange={e => { if (e.target.value) { setEMonth(e.target.value); setExportFrom(""); setExportTo(""); } }} style={{ ...I, cursor: "pointer" }} />
               <span style={{ width: 1, height: 24, background: "#e2e8f0", margin: "0 2px" }} />
               <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>รายวัน:</span>
               <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#059669" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
@@ -4219,13 +4225,19 @@ export default function FlashBackend() {
     const [pMonth, setPMonth] = useState(curMonth);
     const [rows, setRows] = useState(null);
     const [loadingM, setLoadingM] = useState(false);
-    const loadMonth = useCallback(async (m) => {
+    const loadMonth = useCallback(async (m, dFrom, dTo) => {
       if (isDemo) { setRows(demoData); return; }
       setLoadingM(true);
       try {
-        const [yy, mm] = m.split("-").map(Number);
-        const start = new Date(yy, mm - 1, 1).toISOString();
-        const end = new Date(yy, mm, 1).toISOString();
+        let start, end;
+        if (dFrom && dTo) { // เลือกวัน/ช่วง → ดึงเฉพาะช่วงนั้น (ลด egress)
+          start = new Date(dFrom + "T00:00:00").toISOString();
+          const e = new Date(dTo + "T00:00:00"); e.setDate(e.getDate() + 1); end = e.toISOString();
+        } else {
+          const [yy, mm] = m.split("-").map(Number);
+          start = new Date(yy, mm - 1, 1).toISOString();
+          end = new Date(yy, mm, 1).toISOString();
+        }
         let all = [], pg = 0;
         while (pg < 40) {
           const from = pg * 1000;
@@ -4238,8 +4250,8 @@ export default function FlashBackend() {
       } catch { setRows([]); }
       setLoadingM(false);
     }, []);
-    useEffect(() => { loadMonth(pMonth); }, [pMonth, loadMonth]);
-    const goPrevMonth = () => { const [y, m] = pMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setPMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); };
+    useEffect(() => { loadMonth(pMonth, pnoFrom, pnoTo); }, [pMonth, pnoFrom, pnoTo, loadMonth]);
+    const goPrevMonth = () => { const [y, m] = pMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setPMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); setPnoFrom(""); setPnoTo(""); };
     const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const fmtDay = (d) => `${monthOf(d)}-${String(d.getDate()).padStart(2, "0")}`;
     const pickDay = (d) => { setPMonth(monthOf(d)); const s = fmtDay(d); setPnoFrom(s); setPnoTo(s); };
@@ -4365,9 +4377,9 @@ export default function FlashBackend() {
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>เดือน:</span>
-              <button onClick={() => setPMonth(curMonth())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: pMonth === curMonth() ? "#4f46e5" : "#fff", color: pMonth === curMonth() ? "#fff" : "#475569", border: pMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
+              <button onClick={() => { setPMonth(curMonth()); setPnoFrom(""); setPnoTo(""); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: (pMonth === curMonth() && !pnoFrom) ? "#4f46e5" : "#fff", color: pMonth === curMonth() ? "#fff" : "#475569", border: pMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
               <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
-              <input type="month" value={pMonth} onChange={e => e.target.value && setPMonth(e.target.value)} style={{ ...I, cursor: "pointer" }} />
+              <input type="month" value={pMonth} onChange={e => { if (e.target.value) { setPMonth(e.target.value); setPnoFrom(""); setPnoTo(""); } }} style={{ ...I, cursor: "pointer" }} />
               <span style={{ width: 1, height: 24, background: "#e2e8f0", margin: "0 2px" }} />
               <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>รายวัน:</span>
               <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#4f46e5" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
