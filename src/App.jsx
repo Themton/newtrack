@@ -197,12 +197,14 @@ function cleanFlashStatus(fs) {
 
 // ตาม Flash Status Flow: ทุก state (1-9) = พนักงานยิงรับแล้ว → "ยังไม่เข้ารับ" = ไม่มี state เลย (ว่าง) หรือยังเป็นคำ "รอเข้ารับ/สร้างรายการ" เท่านั้น
 const FLASH_NOT_YET_KW = ["สร้างรายการ", "รอเข้ารับ", "รอรับ", "รอดำเนินการ", "pending", "created"];
-function flashPickedUp(fs) {
-  const s = (fs || "").trim();
-  if (!s) return false;                                          // ว่าง = ยังไม่เข้ารับ
-  const low = s.toLowerCase();
+function flashPickedUp(p) {
+  const fs = ((typeof p === "string" ? p : (p && p.flash_status)) || "").trim();
+  if (!fs) return false;                                          // ว่าง = ยังไม่เข้ารับ
+  const low = fs.toLowerCase();
   if (FLASH_NOT_YET_KW.some(k => low.includes(k.toLowerCase()))) return false; // คำ "รอ..." = ยังไม่เข้ารับ
-  return true;                                                   // มี state ใดๆ = เข้ารับแล้ว
+  // กัน "ระหว่างการขนส่ง" ปลอม (มาจาก default เก่าตอน Flash ไม่มีข้อมูลจริง): ไม่มี route detail + ไม่มีเวลาอัพเดตจริง = ยังไม่เข้ารับ
+  if (typeof p === "object" && p && fs === "ระหว่างการขนส่ง" && !((p.flash_detail || "").trim()) && !fmtFlashDate(p.flash_updated_at, "full")) return false;
+  return true;                                                   // มี state จริง = เข้ารับแล้ว
 }
 
 // แสดงวันอัพเดตแฟลช — ถ้าเป็นค่าเพี้ยน (epoch 1970 ตอน Flash ไม่ส่งเวลา route มา) ให้คืนค่าว่าง
@@ -1482,7 +1484,7 @@ export default function FlashBackend() {
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
       // กรองซ้ำฝั่ง client ด้วย flashPickedUp: ตัดใบที่มี state ใดๆ (เข้ารับแล้ว) ออกเสมอ แม้ query เพี้ยน
-      if (Array.isArray(data)) setNotInFlashAll(data.filter(p => !flashPickedUp(p.flash_status)));
+      if (Array.isArray(data)) setNotInFlashAll(data.filter(p => !flashPickedUp(p)));
     } catch {}
   }, [isDemo]);
   useEffect(() => { if (user && !isDemo) loadNotInFlash(); }, [user, loadNotInFlash]);
@@ -1537,7 +1539,7 @@ export default function FlashBackend() {
   const stats = useMemo(() => ({ total: statsData.length, draft: statsData.filter(p => p.status === "draft").length, created: statsData.filter(p => p.status === "created").length, printed: statsData.filter(p => p.status === "printed").length, cancelled: statsData.filter(p => p.status === "cancelled").length, codTotal: statsData.filter(p => p.cod_enabled).reduce((s, p) => s + Number(p.cod_amount || 0), 0) }), [statsData]);
 
   // แจ้งเตือน: พัสดุที่มีเลข Tracking แต่ Flash ยังไม่รับเข้าระบบ
-  const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && !flashPickedUp(p.flash_status)), [parcels]);
+  const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && !flashPickedUp(p)), [parcels]);
 
   const handleDelete = async (p) => { if (!await uiConfirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); logActivity("ลบพัสดุ", `${p.parcel_no || ""} · ${p.receiver_name}`); await sb.broadcastChange(); } catch (e) { uiAlert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
   const markPrinted = async (p) => {

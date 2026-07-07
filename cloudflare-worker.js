@@ -83,7 +83,7 @@ async function broadcastChange() {
 // fallback เมื่อ Flash ไม่ส่ง stateText มา (ปกติจะใช้ data.stateText จริงก่อน)
 // ยืนยันตรงกับเอกสาร Flash: 1=รับพัสดุแล้ว, 5=เซ็นรับแล้ว
 function stateText(s) {
-  return { 1: "รับพัสดุแล้ว", 2: "ระหว่างการขนส่ง", 3: "กำลังจัดส่ง", 4: "ส่งคืน", 5: "เซ็นรับแล้ว", 6: "คืนสำเร็จ" }[s] || "ระหว่างการขนส่ง";
+  return { 1: "รับพัสดุแล้ว", 2: "ระหว่างการขนส่ง", 3: "กำลังจัดส่ง", 4: "ส่งคืน", 5: "เซ็นรับแล้ว", 6: "คืนสำเร็จ" }[s] || "";
 }
 
 const DONE = ["เซ็นรับแล้ว", "คืนสำเร็จ"];
@@ -135,7 +135,7 @@ async function syncFlash() {
   }
 
   parcels = parcels.filter(p => p.flash_pno && !DONE.includes(p.flash_status));
-  if (!parcels.length) return { ok: true, version: "v3.3", checked: 0, updated: 0, errors: 0, stamped_done: doneIds.length, ms: Date.now() - t0 };
+  if (!parcels.length) return { ok: true, version: "v3.4", checked: 0, updated: 0, errors: 0, stamped_done: doneIds.length, ms: Date.now() - t0 };
 
   let shops = [];
   try { shops = await sbQuery("fx_shops?select=id,flash_mch_id") || []; } catch {}
@@ -192,7 +192,7 @@ async function syncFlash() {
   }
 
   if (updated > 0) await broadcastChange();
-  return { ok: true, version: "v3.3", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
+  return { ok: true, version: "v3.4", checked: parcels.length, updated, errors, ms: Date.now() - t0 };
 }
 
 export default {
@@ -211,7 +211,7 @@ export default {
     const url = new URL(req.url);
     const json = (data, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-    if (url.pathname === "/") return json({ status: "ok", version: "v3.3", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
+    if (url.pathname === "/") return json({ status: "ok", version: "v3.4", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
     if (url.pathname === "/sync") return json(await syncFlash());
 
     if (url.pathname === "/test") {
