@@ -2422,7 +2422,7 @@ export default function FlashBackend() {
 
   // ═══ PROBLEM PARCELS PAGE — พัสดุตีกลับ/ส่งไม่สำเร็จ ═══
   const ProblemPage = () => {
-    const isProblem = (fs) => !!fs && (fs.includes("ไม่สำเร็จ") || fs.includes("ตีกลับ") || fs.includes("คืน") || fs.includes("ส่งกลับ"));
+    const isProblem = (fs) => !!fs && (fs.includes("ไม่สำเร็จ") || fs.includes("ตีกลับ") || fs.includes("คืน") || fs.includes("ส่งกลับ") || fs.includes("มีปัญหา"));
     const probs = useMemo(() => parcels.filter(p => isProblem(p.flash_status) && p.status !== "cancelled").sort((a, b) => new Date(b.flash_updated_at || b.created_at) - new Date(a.flash_updated_at || a.created_at)), [parcels]);
     const [notes, setNotes] = useState({});
     const [saving, setSaving] = useState(null);
