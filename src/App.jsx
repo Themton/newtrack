@@ -2169,6 +2169,8 @@ export default function FlashBackend() {
     const [totalRet, setTotalRet] = useState(null);
     const [received, setReceived] = useState([]);
     const [loadingList, setLoadingList] = useState(false);
+    const [page, setPage] = useState(1);
+    const PER_PAGE = 100;
     const inputRef = useRef(null);
     const scanTimer = useRef(null);
     const lastKey = useRef(0);
@@ -2194,19 +2196,23 @@ export default function FlashBackend() {
     const loadList = useCallback(async (filter) => {
       if (isDemo) { setReceived([]); return; }
       setLoadingList(true);
+      setPage(1);
       try {
         const RET = "&status=neq.cancelled&flash_status=ilike.*%E0%B8%95%E0%B8%B5%E0%B8%81%E0%B8%A5%E0%B8%B1%E0%B8%9A*";
         let q;
         if (filter === "received") q = `${RET}&returned_received=is.true&order=returned_received_at.desc`;
         else if (filter === "pending") q = `${RET}&returned_received=not.is.true&order=flash_updated_at.desc.nullslast`;
         else q = `${RET}&order=created_at.desc`;
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id,receiver_name,flash_pno,flash_status,returned_received,returned_received_at,returned_received_by,created_at${q}&limit=500`, { headers: sb.headers() });
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id,receiver_name,flash_pno,flash_status,returned_received,returned_received_at,returned_received_by,created_at${q}&limit=2000`, { headers: sb.headers() });
         const rows = await res.json();
         setReceived(Array.isArray(rows) ? rows : []);
       } catch { setReceived([]); }
       setLoadingList(false);
     }, []);
     const goList = (filter) => { setMode("list"); setListFilter(filter); loadList(filter); };
+    const totalPages = Math.max(1, Math.ceil(received.length / PER_PAGE));
+    const curPage = Math.min(page, totalPages);
+    const pageRows = received.slice((curPage - 1) * PER_PAGE, curPage * PER_PAGE);
 
     // ทำเครื่องหมายรับ จากในลิสต์ (ไม่ต้องสแกน)
     const markFromList = async (p) => {
@@ -2360,7 +2366,7 @@ export default function FlashBackend() {
             </div>
             {received.length === 0 && !loadingList && <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", padding: 50, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ marginTop: 10, fontWeight: 600 }}>ไม่มีรายการ</div></div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {received.map(p => {
+              {pageRows.map(p => {
                 const rec = p.returned_received;
                 return (
                   <div key={p.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", borderLeft: `4px solid ${rec ? "#10b981" : "#f59e0b"}`, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
@@ -2377,6 +2383,15 @@ export default function FlashBackend() {
                 );
               })}
             </div>
+            {totalPages > 1 && (
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+                <button onClick={() => setPage(1)} disabled={curPage === 1} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 13, cursor: curPage === 1 ? "default" : "pointer", opacity: curPage === 1 ? 0.4 : 1 }}>« แรก</button>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={curPage === 1} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 13, cursor: curPage === 1 ? "default" : "pointer", opacity: curPage === 1 ? 0.4 : 1 }}>‹ ก่อนหน้า</button>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#334155", padding: "0 8px" }}>หน้า {curPage} / {totalPages} <span style={{ color: "#94a3b8", fontWeight: 600 }}>({received.length} รายการ)</span></span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={curPage === totalPages} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 13, cursor: curPage === totalPages ? "default" : "pointer", opacity: curPage === totalPages ? 0.4 : 1 }}>ถัดไป ›</button>
+                <button onClick={() => setPage(totalPages)} disabled={curPage === totalPages} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontWeight: 700, fontSize: 13, cursor: curPage === totalPages ? "default" : "pointer", opacity: curPage === totalPages ? 0.4 : 1 }}>สุดท้าย »</button>
+              </div>
+            )}
           </div>
         )}
       </div>
