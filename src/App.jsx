@@ -205,6 +205,16 @@ function flashPickedUp(fs) {
   return true;                                                   // มี state ใดๆ = เข้ารับแล้ว
 }
 
+// แสดงวันอัพเดตแฟลช — ถ้าเป็นค่าเพี้ยน (epoch 1970 ตอน Flash ไม่ส่งเวลา route มา) ให้คืนค่าว่าง
+function fmtFlashDate(v, mode) {
+  if (!v) return "";
+  const d = new Date(v);
+  if (isNaN(d.getTime()) || d.getFullYear() < 2000) return "";
+  return mode === "full"
+    ? d.toLocaleString("th-TH")
+    : d.toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 function generateParcelNo() {
   const now = new Date();
   const d = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
@@ -1247,7 +1257,7 @@ function PublicTracking() {
             <div style={{ fontSize: 14, color: "#334155" }}>ผู้รับ: {mask(p.receiver_name)}</div>
             <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>ปลายทาง: {p.receiver_district || ""} {p.receiver_province || ""}</div>
             {p.flash_detail && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 8, padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>💬 {p.flash_detail}</div>}
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>📅 เข้าระบบ {new Date(p.created_at).toLocaleDateString("th-TH")}{p.flash_updated_at ? ` • อัปเดต ${new Date(p.flash_updated_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>📅 เข้าระบบ {new Date(p.created_at).toLocaleDateString("th-TH")}{fmtFlashDate(p.flash_updated_at) ? ` • อัปเดต ${fmtFlashDate(p.flash_updated_at)}` : ""}</div>
           </div>
         ); })}
         {results && results.length === 0 && !loading && (
@@ -1444,7 +1454,7 @@ export default function FlashBackend() {
                 const parcel = batch.find(p => p.flash_pno === item.pno);
                 if (!parcel) continue;
                 const lastRoute = item.routes?.[0];
-                const updates = { flash_status: item.stateText || "", flash_detail: lastRoute?.message || "", flash_updated_at: new Date((item.stateChangeAt || 0) * 1000).toISOString() };
+                const updates = { flash_status: item.stateText || "", flash_detail: lastRoute?.message || "" }; if (item.stateChangeAt) updates.flash_updated_at = new Date(item.stateChangeAt * 1000).toISOString();
                 // (ไม่ดัน status เป็น printed อัตโนมัติ — printed เฉพาะตอนกดปริ้นจริง)
                 setParcels(prev => prev.map(x => x.id === parcel.id ? { ...x, ...updates, flash_state: item.state } : x));
                 if (!isDemo) { try { await sb.update("fx_parcels", parcel.id, updates); } catch {} }
@@ -2014,7 +2024,7 @@ export default function FlashBackend() {
                     {p.flash_detail && <div style={{ fontSize: 12, color: "#9ca3af" }}>💬 {p.flash_detail}</div>}
                     <div style={{ fontSize: 11, color: "#9ca3af" }}>
                       📅 {new Date(p.created_at).toLocaleDateString("th-TH")}
-                      {p.flash_updated_at && <span> • อัพเดต {new Date(p.flash_updated_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>}
+                      {fmtFlashDate(p.flash_updated_at) && <span> • อัพเดต {fmtFlashDate(p.flash_updated_at)}</span>}
                     </div>
                   </div>
                 );
@@ -2125,7 +2135,7 @@ export default function FlashBackend() {
               <tbody>{rows.map(p => (
                 <tr key={p.id} style={{ borderBottom: "1px solid #f1f5f9", background: p.cod_received ? "#f0fdf4" : "#fff" }}>
                   <td style={{ padding: "10px 12px" }}><input type="checkbox" checked={sel.has(p.id)} onChange={() => setSel(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td>
-                  <td style={{ padding: "10px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{new Date(p.flash_updated_at || p.created_at).toLocaleDateString("th-TH")}</td>
+                  <td style={{ padding: "10px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{new Date(fmtFlashDate(p.flash_updated_at, "full") ? p.flash_updated_at : p.created_at).toLocaleDateString("th-TH")}</td>
                   <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#4f46e5" }}>{p.flash_pno || "—"}</td>
                   <td style={{ padding: "10px 12px" }}>{p.receiver_name}</td>
                   <td style={{ padding: "10px 12px", color: "#64748b" }}>{(shops.find(s => s.id === p.shop_id) || {}).name || "—"}</td>
@@ -3134,7 +3144,7 @@ export default function FlashBackend() {
             const headers = ["ลำดับ","วันที่","ลูกค้า","เบอร์โทร","เลข Tracking","Sort Code","สถานะ Flash","รายละเอียดล่าสุด","อัพเดตล่าสุด","สถานะระบบ","COD","ยอด COD","ร้านค้า","ที่อยู่","ตำบล","อำเภอ","จังหวัด","รหัสไปรษณีย์","หมายเหตุ"];
             const rows = data.map((p, i) => {
               const shop = shops?.find(s => s.id === p.shop_id);
-              return [i+1, new Date(p.created_at).toLocaleString("th-TH"), p.receiver_name, p.receiver_phone, p.flash_pno, p.flash_sort_code||"", p.flash_status||"สร้างรายการ", p.flash_detail||"", p.flash_updated_at ? new Date(p.flash_updated_at).toLocaleString("th-TH") : "", p.status, p.cod_enabled?"ใช่":"ไม่", p.cod_amount||0, shop?.name||"", p.receiver_address, p.receiver_subdistrict, p.receiver_district, p.receiver_province, p.receiver_postal, p.remark||""];
+              return [i+1, new Date(p.created_at).toLocaleString("th-TH"), p.receiver_name, p.receiver_phone, p.flash_pno, p.flash_sort_code||"", p.flash_status||"สร้างรายการ", p.flash_detail||"", fmtFlashDate(p.flash_updated_at, "full"), p.status, p.cod_enabled?"ใช่":"ไม่", p.cod_amount||0, shop?.name||"", p.receiver_address, p.receiver_subdistrict, p.receiver_district, p.receiver_province, p.receiver_postal, p.remark||""];
             });
             const csv = bom + [headers, ...rows].map(r => r.map(v => `"${String(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
             const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -3178,7 +3188,7 @@ export default function FlashBackend() {
                           <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: fStyle.bg, color: fStyle.color, whiteSpace: "nowrap" }}>{fs}</span>
                         </td>
                         <td style={{ padding: "9px 12px", fontSize: 11, color: "#374151", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.flash_detail || ""}>{p.flash_detail || "—"}</td>
-                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>{p.flash_updated_at ? new Date(p.flash_updated_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>{fmtFlashDate(p.flash_updated_at) || "—"}</td>
                         <td style={{ padding: "9px 12px", fontSize: 12 }}>{sysStatus}</td>
                         {perm.viewCOD && <td style={{ padding: "9px 12px", fontWeight: 700, color: p.cod_enabled ? "#b45309" : "#d1d5db" }}>{p.cod_enabled ? `฿${Number(p.cod_amount || 0).toLocaleString()}` : "—"}</td>}
                         <td style={{ padding: "9px 12px", fontSize: 12, color: "#6b7280" }}>{shop?.name || "—"}</td>
@@ -4042,7 +4052,7 @@ export default function FlashBackend() {
           statusMap[p.status] || p.status || "",
           p.flash_status || "",
           p.flash_detail || "",
-          p.flash_updated_at ? new Date(p.flash_updated_at).toLocaleString("th-TH") : "",
+          fmtFlashDate(p.flash_updated_at, "full"),
           shop?.name || "",
           p.created_by_name || "",
           new Date(p.created_at).toLocaleString("th-TH"),
@@ -4345,7 +4355,7 @@ export default function FlashBackend() {
           statusMap[p.status] || p.status || "",
           p.flash_status || "สร้างรายการ",
           p.flash_detail || "",
-          p.flash_updated_at ? new Date(p.flash_updated_at).toLocaleString("th-TH") : "",
+          fmtFlashDate(p.flash_updated_at, "full"),
           shop?.name || "",
           p.sale_person || p.created_by_name || "",
           p.created_by_name || "",
@@ -4604,7 +4614,7 @@ export default function FlashBackend() {
                                   const parcel = batch.find(p => p.flash_pno === item.pno);
                                   if (!parcel) continue;
                                   const lastRoute = item.routes?.[0];
-                                  const updates = { flash_status: item.stateText || "", flash_detail: lastRoute?.message || "", flash_updated_at: new Date((item.stateChangeAt || 0) * 1000).toISOString() };
+                                  const updates = { flash_status: item.stateText || "", flash_detail: lastRoute?.message || "" }; if (item.stateChangeAt) updates.flash_updated_at = new Date(item.stateChangeAt * 1000).toISOString();
                                   setParcels(prev => prev.map(x => x.id === parcel.id ? { ...x, ...updates, flash_state: item.state } : x));
                                   try { await sb.update("fx_parcels", parcel.id, updates); } catch {}
                                   if (Number(item.state) > 1) { updated++; details.push(`✅ ${item.pno} → ${item.stateText}`); }
@@ -4940,7 +4950,7 @@ export default function FlashBackend() {
       {/* DETAIL MODAL */}
       {viewParcel && <div style={{ position: "fixed", inset: 0, zIndex: 8000, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setViewParcel(null)}><div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, padding: 28, maxWidth: 520, width: "95%", maxHeight: "85vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}><h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>📦 รายละเอียด</h3><button onClick={() => setViewParcel(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer" }}>✕</button></div>
-        {[["Tracking", viewParcel.flash_pno || "—"], ["Sort Code", viewParcel.flash_sort_code || "—"], ["สถานะ Flash", viewParcel.flash_status || "—"], ["รายละเอียดล่าสุด", viewParcel.flash_detail || "—"], ["อัพเดตล่าสุด", viewParcel.flash_updated_at ? new Date(viewParcel.flash_updated_at).toLocaleString("th-TH") : "—"], ["── ผู้ส่ง ──", ""], ["ชื่อ", viewParcel.sender_name], ["เบอร์", viewParcel.sender_phone], ["── ผู้รับ ──", ""], ["ชื่อ", viewParcel.receiver_name], ["เบอร์", viewParcel.receiver_phone], ["ที่อยู่", `${viewParcel.receiver_address || ""} ${viewParcel.receiver_subdistrict || ""} ${viewParcel.receiver_district || ""} ${viewParcel.receiver_province || ""} ${viewParcel.receiver_postal || ""}`], ["── พัสดุ ──", ""], ["น้ำหนัก", `${viewParcel.weight || 1} kg`], ["สินค้า", viewParcel.item_desc || "—"], ...(perm.viewCOD ? [["COD", viewParcel.cod_enabled ? `฿${Number(viewParcel.cod_amount || 0).toLocaleString()}` : "ไม่มี"]] : []), ["หมายเหตุ", viewParcel.remark || "—"], ["ผู้สร้าง", viewParcel.created_by_name || "—"], ["สร้างเมื่อ", new Date(viewParcel.created_at).toLocaleString("th-TH")]].map(([l, v], i) => v === "" ? <div key={i} style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", padding: "10px 0 4px", borderBottom: "1px solid #f1f5f9" }}>{l}</div> : <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #f8fafc" }}><span style={{ fontSize: 13, color: "#64748b" }}>{l}</span><span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", textAlign: "right", maxWidth: "60%", wordBreak: "break-word" }}>{v}</span></div>)}
+        {[["Tracking", viewParcel.flash_pno || "—"], ["Sort Code", viewParcel.flash_sort_code || "—"], ["สถานะ Flash", viewParcel.flash_status || "—"], ["รายละเอียดล่าสุด", viewParcel.flash_detail || "—"], ["อัพเดตล่าสุด", fmtFlashDate(viewParcel.flash_updated_at, "full") || "—"], ["── ผู้ส่ง ──", ""], ["ชื่อ", viewParcel.sender_name], ["เบอร์", viewParcel.sender_phone], ["── ผู้รับ ──", ""], ["ชื่อ", viewParcel.receiver_name], ["เบอร์", viewParcel.receiver_phone], ["ที่อยู่", `${viewParcel.receiver_address || ""} ${viewParcel.receiver_subdistrict || ""} ${viewParcel.receiver_district || ""} ${viewParcel.receiver_province || ""} ${viewParcel.receiver_postal || ""}`], ["── พัสดุ ──", ""], ["น้ำหนัก", `${viewParcel.weight || 1} kg`], ["สินค้า", viewParcel.item_desc || "—"], ...(perm.viewCOD ? [["COD", viewParcel.cod_enabled ? `฿${Number(viewParcel.cod_amount || 0).toLocaleString()}` : "ไม่มี"]] : []), ["หมายเหตุ", viewParcel.remark || "—"], ["ผู้สร้าง", viewParcel.created_by_name || "—"], ["สร้างเมื่อ", new Date(viewParcel.created_at).toLocaleString("th-TH")]].map(([l, v], i) => v === "" ? <div key={i} style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", padding: "10px 0 4px", borderBottom: "1px solid #f1f5f9" }}>{l}</div> : <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #f8fafc" }}><span style={{ fontSize: 13, color: "#64748b" }}>{l}</span><span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", textAlign: "right", maxWidth: "60%", wordBreak: "break-word" }}>{v}</span></div>)}
         <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
           {viewParcel.status === "printed" ? <>
             <div style={{ flex: 1, padding: 11, background: "#ecfdf5", border: "1px solid #059669", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#059669", fontWeight: 700 }}>🔒 รับเข้าระบบแล้ว — ดูได้อย่างเดียว</div>
