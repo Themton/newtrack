@@ -233,7 +233,7 @@ const ROLES = {
 
 const CAN = {
   admin:      { create: true, edit: true, delete: true, status: true, print: true, users: true, viewCOD: true, cancelFlash: true, dashboard: true, evaluate: true, exportData: true, tracking: true },
-  shipping:   { create: true, edit: true, delete: true, status: true, print: true, users: false, viewCOD: false, cancelFlash: false, dashboard: false, evaluate: false, exportData: false, tracking: true },
+  shipping:   { create: true, edit: true, delete: true, status: true, print: true, users: false, viewCOD: false, cancelFlash: true, dashboard: false, evaluate: false, exportData: false, tracking: true },
   accounting: { create: false, edit: false, delete: false, status: false, print: true, users: false, viewCOD: true, cancelFlash: false, dashboard: true, evaluate: true, exportData: true, tracking: true },
   tracking:   { create: false, edit: false, delete: false, status: false, print: false, users: false, viewCOD: false, cancelFlash: false, dashboard: false, evaluate: false, exportData: false, tracking: true },
 };
