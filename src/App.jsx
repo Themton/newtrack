@@ -2526,8 +2526,34 @@ export default function FlashBackend() {
 
   // ═══ SUMMARY REPORT PAGE — สรุปรายงานขนส่ง ═══
   const SummaryReportPage = () => {
-    const tracked = parcels.filter(p => p.flash_pno);
     const now = new Date();
+    const curMonthStr = now.toISOString().slice(0, 7);
+    const [monthPick, setMonthPick] = useState(curMonthStr);
+    const [monthRows, setMonthRows] = useState(null);
+    const [loadingMonth, setLoadingMonth] = useState(false);
+    const isCurMonth = monthPick === curMonthStr;
+    const loadMonthData = useCallback(async (m) => {
+      if (isDemo) { setMonthRows(null); return; }
+      setLoadingMonth(true);
+      try {
+        const [yy, mm] = m.split("-").map(Number);
+        const start = new Date(yy, mm - 1, 1).toISOString();
+        const end = new Date(yy, mm, 1).toISOString();
+        let all = [], pg = 0;
+        while (pg < 40) {
+          const from = pg * 1000;
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
+          const d = await res.json();
+          if (!Array.isArray(d) || !d.length) break;
+          all = all.concat(d); if (d.length < 1000) break; pg++;
+        }
+        setMonthRows(all);
+      } catch { setMonthRows([]); }
+      setLoadingMonth(false);
+    }, []);
+    useEffect(() => { if (summaryPeriod === "monthly" && !isCurMonth) loadMonthData(monthPick); }, [summaryPeriod, monthPick, isCurMonth, loadMonthData]);
+    const srcParcels = (summaryPeriod === "monthly" && !isCurMonth && monthRows) ? monthRows : parcels;
+    const tracked = srcParcels.filter(p => p.flash_pno);
     const todayStr = now.toISOString().slice(0, 10);
 
     const getDateRange = (period) => {
@@ -2535,7 +2561,12 @@ export default function FlashBackend() {
       const start = new Date(now); start.setHours(0,0,0,0);
       if (period === "daily") return { start, end, label: "วันนี้ (" + now.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) + ")" };
       if (period === "7days") { start.setDate(start.getDate() - 6); return { start, end, label: "7 วันล่าสุด" }; }
-      if (period === "monthly") { start.setDate(1); return { start, end, label: "เดือน" + now.toLocaleDateString("th-TH", { month: "long", year: "numeric" }) }; }
+      if (period === "monthly") {
+        const [yy, mm] = monthPick.split("-").map(Number);
+        const s = new Date(yy, mm - 1, 1); s.setHours(0, 0, 0, 0);
+        const e = isCurMonth ? new Date(now) : new Date(yy, mm, 0); e.setHours(23, 59, 59, 999);
+        return { start: s, end: e, label: "เดือน " + s.toLocaleDateString("th-TH", { month: "long", year: "numeric" }) };
+      }
       if (period === "custom") {
         const s = new Date(summaryFrom); s.setHours(0,0,0,0);
         const e = new Date(summaryTo); e.setHours(23,59,59,999);
@@ -2646,6 +2677,13 @@ export default function FlashBackend() {
             <input type="date" value={summaryFrom} onChange={e => setSummaryFrom(e.target.value)} style={{ padding: "10px 14px", border: "1.5px solid #4f46e5", borderRadius: 10, fontSize: 14, fontFamily: "inherit", fontWeight: 600 }} />
             <span style={{ color: "#9ca3af", fontWeight: 700 }}>→</span>
             <input type="date" value={summaryTo} onChange={e => setSummaryTo(e.target.value)} style={{ padding: "10px 14px", border: "1.5px solid #4f46e5", borderRadius: 10, fontSize: 14, fontFamily: "inherit", fontWeight: 600 }} />
+          </>)}
+          {summaryPeriod === "monthly" && (<>
+            <span style={{ width: 1, height: 26, background: "#e5e7eb", margin: "0 2px" }} />
+            <button onClick={() => setMonthPick(curMonthStr)} style={{ padding: "10px 16px", border: isCurMonth ? "none" : "1.5px solid #e5e7eb", borderRadius: 10, background: isCurMonth ? "#059669" : "#fff", color: isCurMonth ? "#fff" : "#374151", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>เดือนนี้</button>
+            <button onClick={() => { const [y, m] = monthPick.split("-").map(Number); const d = new Date(y, m - 2, 1); setMonthPick(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }} style={{ padding: "10px 16px", border: "1.5px solid #e5e7eb", borderRadius: 10, background: "#fff", color: "#374151", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>◀ เดือนก่อน</button>
+            <input type="month" value={monthPick} onChange={e => e.target.value && setMonthPick(e.target.value)} style={{ padding: "10px 14px", border: "1.5px solid #4f46e5", borderRadius: 10, fontSize: 14, fontFamily: "inherit", fontWeight: 600, cursor: "pointer" }} />
+            {loadingMonth && <span style={{ fontSize: 13, color: "#6366f1", fontWeight: 700 }}>⟳ กำลังโหลด…</span>}
           </>)}
         </div>
 
