@@ -195,9 +195,15 @@ function cleanFlashStatus(fs) {
   return fs.replace(/\s*Returned Tracking No\.?.*$/i, "").replace(/\s+/g, " ").trim();
 }
 
-// สถานะที่แปลว่า Flash "รับเข้าระบบแล้ว" (พนักงานยิงรับ/มีการเคลื่อนไหวจริง) — ใช้ตัดสิน "แฟลชยังไม่เข้ารับ"
-const FLASH_RECEIVED_KW = ["คงคลัง", "ขนส่ง", "นำส่ง", "เซ็นรับ", "ตีกลับ", "คืน", "ไม่สำเร็จ", "จัดส่งสำเร็จ", "ถึงสาขา", "ถึงจุด"];
-function flashPickedUp(fs) { return !!fs && FLASH_RECEIVED_KW.some(k => fs.includes(k)); }
+// ตาม Flash Status Flow: ทุก state (1-9) = พนักงานยิงรับแล้ว → "ยังไม่เข้ารับ" = ไม่มี state เลย (ว่าง) หรือยังเป็นคำ "รอเข้ารับ/สร้างรายการ" เท่านั้น
+const FLASH_NOT_YET_KW = ["สร้างรายการ", "รอเข้ารับ", "รอรับ", "รอดำเนินการ", "pending", "created"];
+function flashPickedUp(fs) {
+  const s = (fs || "").trim();
+  if (!s) return false;                                          // ว่าง = ยังไม่เข้ารับ
+  const low = s.toLowerCase();
+  if (FLASH_NOT_YET_KW.some(k => low.includes(k.toLowerCase()))) return false; // คำ "รอ..." = ยังไม่เข้ารับ
+  return true;                                                   // มี state ใดๆ = เข้ารับแล้ว
+}
 
 function generateParcelNo() {
   const now = new Date();
@@ -1459,13 +1465,13 @@ export default function FlashBackend() {
   const loadNotInFlash = useCallback(async () => {
     if (isDemo) return;
     try {
-      // ยังไม่เข้าระบบ Flash = สถานะยังไม่มี "การรับเข้าระบบจริง" (คงคลัง/ขนส่ง/นำส่ง/เซ็นรับ/ตีกลับ/คืน)
-      // → ว่าง หรือ "รอเข้ารับ" = ยังไม่ยิงรับ (นับ) ; มีสถานะเคลื่อนไหว = เข้าระบบแล้ว (ไม่นับ)
-      const andNot = FLASH_RECEIVED_KW.map(k => `flash_status.not.ilike.*${k}*`).join(",");
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,and(${andNot}))&order=created_at.desc&limit=3000`;
+      // ยังไม่เข้าระบบ Flash = สถานะว่าง (ไม่มี state) หรือยังเป็นคำ "รอเข้ารับ/สร้างรายการ" เท่านั้น
+      // (ตาม Flash Status Flow: state 1-9 = ยิงรับแล้วทั้งหมด) — ดึงกว้างไว้ แล้วกรองซ้ำฝั่ง client
+      const notYet = FLASH_NOT_YET_KW.map(k => `flash_status.ilike.*${k}*`).join(",");
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.eq.,${notYet})&order=created_at.desc&limit=3000`;
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
-      // กรองซ้ำฝั่ง client: ตัดใบที่ Flash รับเข้าระบบแล้วออกเสมอ (กัน "เซ็นรับแล้ว/ขนส่ง" หลุดเข้ามา แม้ query เพี้ยน)
+      // กรองซ้ำฝั่ง client ด้วย flashPickedUp: ตัดใบที่มี state ใดๆ (เข้ารับแล้ว) ออกเสมอ แม้ query เพี้ยน
       if (Array.isArray(data)) setNotInFlashAll(data.filter(p => !flashPickedUp(p.flash_status)));
     } catch {}
   }, [isDemo]);
