@@ -1465,7 +1465,8 @@ export default function FlashBackend() {
       const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,and(${andNot}))&order=created_at.desc&limit=3000`;
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
-      if (Array.isArray(data)) setNotInFlashAll(data);
+      // กรองซ้ำฝั่ง client: ตัดใบที่ Flash รับเข้าระบบแล้วออกเสมอ (กัน "เซ็นรับแล้ว/ขนส่ง" หลุดเข้ามา แม้ query เพี้ยน)
+      if (Array.isArray(data)) setNotInFlashAll(data.filter(p => !flashPickedUp(p.flash_status)));
     } catch {}
   }, [isDemo]);
   useEffect(() => { if (user && !isDemo) loadNotInFlash(); }, [user, loadNotInFlash]);
