@@ -2392,7 +2392,7 @@ export default function FlashBackend() {
                 <div style={{ fontSize: 13, color: "#64748b", marginTop: 3 }}>📍 {[p.receiver_district, p.receiver_province].filter(Boolean).join(" ")} · 📅 {new Date(p.created_at).toLocaleDateString("th-TH", { day: "numeric", month: "short" })} {p.cod_enabled && Number(p.cod_amount) > 0 ? <span style={{ color: "#dc2626", fontWeight: 700 }}>· COD ฿{Number(p.cod_amount).toLocaleString()}</span> : null}</div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: "#fef3c7", color: "#92400e", whiteSpace: "nowrap" }}>รอเข้ารับ</span>
+                <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: "#fef3c7", color: "#92400e", whiteSpace: "nowrap" }}>{cleanFlashStatus(p.flash_status) || "รอเข้ารับ (ไม่มีสถานะ)"}</span>
                 <button onClick={() => setPrintPreview([{ ...p }])} style={{ padding: "8px 14px", borderRadius: 8, background: "#059669", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>🖨️ ปริ้น</button>
               </div>
             </div>
