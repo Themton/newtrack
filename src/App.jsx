@@ -2559,7 +2559,7 @@ export default function FlashBackend() {
     }, []);
     useEffect(() => { if (summaryPeriod === "monthly" && !isCurMonth) loadMonthData(monthPick); }, [summaryPeriod, monthPick, isCurMonth, loadMonthData]);
     const srcParcels = (summaryPeriod === "monthly" && !isCurMonth && monthRows) ? monthRows : parcels;
-    const tracked = srcParcels.filter(p => p.flash_pno);
+    const tracked = srcParcels.filter(p => p.flash_pno && p.status !== "cancelled");
     const todayStr = now.toISOString().slice(0, 10);
 
     const getDateRange = (period) => {
@@ -2831,7 +2831,7 @@ export default function FlashBackend() {
   const EvaluatePage = () => {
 
     const evalData = useMemo(() => {
-      let list = parcels.filter(p => p.flash_pno);
+      let list = parcels.filter(p => p.flash_pno && p.status !== "cancelled");
       if (evalShop) list = list.filter(p => p.shop_id === evalShop);
       if (evalFrom) list = list.filter(p => (p.created_at || "").slice(0, 10) >= evalFrom);
       if (evalTo) list = list.filter(p => (p.created_at || "").slice(0, 10) <= evalTo);
@@ -3033,7 +3033,7 @@ export default function FlashBackend() {
     const RPT_PER = rptPerPage;
 
     // เฉพาะพัสดุที่มีเลข Tracking
-    const tracked = useMemo(() => parcels.filter(p => p.flash_pno), [parcels]);
+    const tracked = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled"), [parcels]);
 
     const FLASH_TABS = [
       { key: "ALL", label: "ทั้งหมด", icon: "📋", color: "#4f46e5" },
