@@ -1373,19 +1373,25 @@ export default function FlashBackend() {
       const [yy, mm] = month.split("-").map(Number);
       const start = new Date(yy, mm - 1, 1).toISOString();
       const end = new Date(yy, mm, 1).toISOString(); // ต้นเดือนถัดไป
-      const monthFilter = `&created_at=gte.${start}&created_at=lt.${end}`;
-      let all = [], pg = 0;
-      while (pg < 30) {
-        const from = pg * 1000;
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&order=created_at.desc${monthFilter}`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
-        const data = await res.json();
-        if (!Array.isArray(data) || !data.length) break;
-        all = all.concat(data);
-        if (data.length < 1000) break;
-        pg++;
+      const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&order=created_at.desc&created_at=gte.${start}&created_at=lt.${end}`;
+      // 1) นับจำนวนก่อน (เบา) เพื่อรู้ว่ากี่หน้า
+      const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
+      const first = await head.json();
+      const cr = head.headers.get("content-range") || "";
+      const total = parseInt(cr.split("/")[1], 10) || (Array.isArray(first) ? first.length : 0);
+      let all = Array.isArray(first) ? first : [];
+      // 2) หน้าที่เหลือ → ยิงพร้อมกันทั้งหมด (parallel) แทนต่อคิว → เร็วขึ้นมาก
+      const pages = Math.min(30, Math.ceil(total / 1000));
+      if (pages > 1) {
+        const reqs = [];
+        for (let p = 1; p < pages; p++) {
+          const from = p * 1000;
+          reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).catch(() => []));
+        }
+        const rest = await Promise.all(reqs);
+        for (const chunk of rest) if (Array.isArray(chunk)) all = all.concat(chunk);
       }
       setParcels(all);
-      // (เอา auto-fix ที่ดัน created→printed ออก — สถานะจะเป็น printed เฉพาะตอนกดปริ้น/เปลี่ยนเป็นปริ้นแล้วเท่านั้น)
     } catch {} setLoading(false);
   }, [isDemo, demoData, month]);
 
