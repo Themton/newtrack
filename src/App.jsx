@@ -3325,10 +3325,26 @@ export default function FlashBackend() {
 
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#111" }}>📊 Dashboard</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>สรุปภาพรวมระบบจัดการพัสดุ — {new Date().toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+        <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#111" }}>📊 Dashboard</h2>
+            <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>สรุปภาพรวมระบบจัดการพัสดุ — {new Date().toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}{loading && <span style={{ color: "#6366f1", fontWeight: 700 }}> · ⏳ กำลังโหลด…</span>}</p>
+          </div>
+          <button onClick={() => loadParcels()} disabled={loading} style={{ padding: "9px 18px", borderRadius: 10, border: "1.5px solid #e5e7eb", background: "#fff", color: "#4f46e5", fontWeight: 700, fontSize: 14, cursor: loading ? "default" : "pointer", opacity: loading ? 0.5 : 1, whiteSpace: "nowrap" }}>🔄 โหลดข้อมูลใหม่</button>
         </div>
+
+        {loading && parcels.length === 0 && (
+          <div style={{ marginBottom: 20, background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 22 }}>⏳</span>
+            <div style={{ fontWeight: 700, color: "#4338ca" }}>กำลังโหลดข้อมูลพัสดุ… <span style={{ fontWeight: 500, color: "#6366f1" }}>(ถ้ามีพัสดุจำนวนมากอาจใช้เวลาสักครู่)</span></div>
+          </div>
+        )}
+        {!loading && parcels.length === 0 && (
+          <div style={{ marginBottom: 20, background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 700, color: "#92400e" }}>📭 ยังไม่มีข้อมูลพัสดุในเดือนที่เลือก — ถ้าคิดว่าผิดปกติ ลองกดโหลดใหม่ หรือเช็คเดือนที่เลือกในหน้า "การจัดส่ง"</div>
+            <button onClick={() => loadParcels()} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#f59e0b", color: "#fff", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>🔄 โหลดใหม่</button>
+          </div>
+        )}
 
         {/* 🔔 แจ้งเตือน: พัสดุยังไม่เข้าระบบ Flash */}
         {notInFlash.length > 0 && (
