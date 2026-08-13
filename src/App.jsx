@@ -4065,6 +4065,16 @@ export default function FlashBackend() {
     const allMonth = () => { setExportFrom(""); setExportTo(""); };
     const isDay = (() => { const t = new Date(); const y = new Date(); y.setDate(y.getDate() - 1); if (exportFrom && exportFrom === exportTo) { if (exportFrom === fmtDay(t)) return "today"; if (exportFrom === fmtDay(y)) return "yest"; return "day"; } return "month"; })();
     const monthLabel = (() => { const [y, m] = eMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
+    const rangeLabel = (() => {
+      const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+      if (exportFrom && exportTo) return exportFrom === exportTo ? fmt(exportFrom) : `${fmt(exportFrom)} – ${fmt(exportTo)}`;
+      if (exportFrom) return `ตั้งแต่ ${fmt(exportFrom)}`;
+      if (exportTo) return `ถึง ${fmt(exportTo)}`;
+      const [y, m] = eMonth.split("-").map(Number);
+      const last = new Date(y, m, 0).getDate();
+      return `1 – ${last} ${new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
+    })();
+
     const src = rows || [];
 
     const getExportData = () => {
@@ -4220,7 +4230,7 @@ export default function FlashBackend() {
               <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#059669" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
               <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#059669" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
               <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#059669" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>📅 {monthLabel}{loadingM ? " · กำลังโหลด…" : ` · ${src.length} รายการ`}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>📅 {rangeLabel}{loadingM ? " · กำลังโหลด…" : ` · ${src.length} รายการ`}</span>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
               <div>
@@ -4284,10 +4294,11 @@ export default function FlashBackend() {
               <div style={{ overflowX: "auto", maxHeight: 300 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                   <thead><tr style={{ background: "#f8fafc" }}>
-                    {["ชื่อ","เบอร์","อำเภอ","จังหวัด","Tracking","COD","พนักงาน","หมายเหตุ"].map((h,i) => <th key={i} style={{ padding: "6px 8px", textAlign: "left", fontWeight: 700, color: "#64748b", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>{h}</th>)}
+                    {["วันที่","ชื่อ","เบอร์","อำเภอ","จังหวัด","Tracking","COD","พนักงาน","หมายเหตุ"].map((h,i) => <th key={i} style={{ padding: "6px 8px", textAlign: "left", fontWeight: 700, color: "#64748b", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>{h}</th>)}
                   </tr></thead>
                   <tbody>{previewData.slice(0, 20).map((p, i) => {
                     return <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <td style={{ padding: "5px 8px", fontSize: 11, color: "#334155", whiteSpace: "nowrap" }}>{p.created_at ? new Date(p.created_at).toLocaleDateString("th-TH", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}</td>
                       <td style={{ padding: "5px 8px", fontWeight: 600 }}>{p.receiver_name}</td>
                       <td style={{ padding: "5px 8px", fontFamily: "monospace" }}>{p.receiver_phone}</td>
                       <td style={{ padding: "5px 8px" }}>{p.receiver_district}</td>
@@ -4358,6 +4369,16 @@ export default function FlashBackend() {
     const allMonth = () => { setPnoFrom(""); setPnoTo(""); };
     const isDay = (() => { const t = new Date(); const y = new Date(); y.setDate(y.getDate() - 1); if (pnoFrom && pnoFrom === pnoTo) { if (pnoFrom === fmtDay(t)) return "today"; if (pnoFrom === fmtDay(y)) return "yest"; return "day"; } return "month"; })();
     const monthLabel = (() => { const [y, m] = pMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
+    const rangeLabel = (() => {
+      const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+      if (pnoFrom && pnoTo) return pnoFrom === pnoTo ? fmt(pnoFrom) : `${fmt(pnoFrom)} – ${fmt(pnoTo)}`;
+      if (pnoFrom) return `ตั้งแต่ ${fmt(pnoFrom)}`;
+      if (pnoTo) return `ถึง ${fmt(pnoTo)}`;
+      const [y, m] = pMonth.split("-").map(Number);
+      const last = new Date(y, m, 0).getDate();
+      return `1 – ${last} ${new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
+    })();
+
 
     // กรองเฉพาะพัสดุที่มีเลข Tracking และไม่ถูกยกเลิก (จากเดือนที่โหลด)
     const list = useMemo(() => {
@@ -4485,7 +4506,7 @@ export default function FlashBackend() {
               <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#4f46e5" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
               <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#4f46e5" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
               <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#4f46e5" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {monthLabel}{loadingM ? " · กำลังโหลด…" : ` · ${(rows || []).length} รายการ`}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {rangeLabel}{loadingM ? " · กำลังโหลด…" : ` · ${(rows || []).length} รายการ`}</span>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
               <div>
