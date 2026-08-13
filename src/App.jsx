@@ -1354,6 +1354,8 @@ export default function FlashBackend() {
   const [pnoTo, setPnoTo] = useState("");
   const [pnoSep, setPnoSep] = useState("newline");
   const [loadPct, setLoadPct] = useState(0); // % ความคืบหน้าการโหลดพัสดุ
+  const [exportPct, setExportPct] = useState(0);
+  const [pnoPct, setPnoPct] = useState(0);
   // เดือน/ข้อมูลของหน้า Export — เก็บระดับ App เพื่อไม่ให้รีเซ็ตกลับเดือนปัจจุบันเวลาหน้า re-render
   const [eMonth, setEMonth] = useState(curMonthKey);
   const [exportRows, setExportRows] = useState(null);
@@ -4050,13 +4052,14 @@ export default function FlashBackend() {
 
     const curMonth = curMonthKey;
     const rows = exportRows, setRows = setExportRows;
+    const pct = exportPct, setPct = setExportPct;
     const loadingM = exportLoadingM, setLoadingM = setExportLoadingM;
     const loadMonth = useCallback(async (m, dFrom, dTo) => {
       if (isDemo) { setRows(demoData); return; }
       const key = `${m}|${dFrom || ""}|${dTo || ""}`;
       if (exportKeyRef.current === key) return; // โหลดช่วงนี้ไว้แล้ว ไม่ต้องดึงซ้ำ
       exportKeyRef.current = key;
-      setLoadingM(true);
+      setLoadingM(true); setPct(0);
       try {
         let start, end;
         if (dFrom && dTo) { // เลือกวัน/ช่วง → ดึงเฉพาะช่วงนั้น (ลด egress)
@@ -4067,14 +4070,26 @@ export default function FlashBackend() {
           start = new Date(yy, mm - 1, 1).toISOString();
           end = new Date(yy, mm, 1).toISOString();
         }
-        let all = [], pg = 0;
-        while (pg < 40) {
-          const from = pg * 1000;
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
-          const data = await res.json();
-          if (!Array.isArray(data) || !data.length) break;
-          all = all.concat(data); if (data.length < 1000) break; pg++;
+        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
+        // นับจำนวนก่อน แล้วยิงหน้าที่เหลือพร้อมกัน + อัปเดต %
+        const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
+        const first = await head.json();
+        const total = parseInt((head.headers.get("content-range") || "").split("/")[1], 10) || (Array.isArray(first) ? first.length : 0);
+        let all = Array.isArray(first) ? first : [];
+        let done = all.length;
+        const bump = (n) => { done += n; setPct(total ? Math.min(99, Math.round(done / total * 100)) : 0); };
+        bump(0);
+        const pages = Math.min(40, Math.ceil(total / 1000));
+        if (pages > 1) {
+          const reqs = [];
+          for (let p = 1; p < pages; p++) {
+            const from = p * 1000;
+            reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).then(d => { bump(Array.isArray(d) ? d.length : 0); return d; }).catch(() => []));
+          }
+          const rest = await Promise.all(reqs);
+          for (const chunk of rest) if (Array.isArray(chunk)) all = all.concat(chunk);
         }
+        setPct(100);
         setRows(all);
       } catch { setRows([]); }
       setLoadingM(false);
@@ -4252,7 +4267,8 @@ export default function FlashBackend() {
               <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#059669" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
               <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#059669" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
               <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#059669" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>📅 {rangeLabel}{loadingM ? " · กำลังโหลด…" : ` · ${src.length} รายการ`}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>📅 {rangeLabel}{loadingM ? ` · ⏳ กำลังโหลด ${pct}%` : ` · ${src.length} รายการ`}</span>
+              {loadingM && <span style={{ display: "inline-block", width: 140, height: 8, background: "#e2e8f0", borderRadius: 99, overflow: "hidden", verticalAlign: "middle" }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: "#059669", borderRadius: 99, transition: "width .25s ease" }} /></span>}
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
               <div>
@@ -4356,13 +4372,14 @@ export default function FlashBackend() {
     const I = { padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit" };
     const curMonth = curMonthKey;
     const rows = pnoRows, setRows = setPnoRows;
+    const pct = pnoPct, setPct = setPnoPct;
     const loadingM = pnoLoadingM, setLoadingM = setPnoLoadingM;
     const loadMonth = useCallback(async (m, dFrom, dTo) => {
       if (isDemo) { setRows(demoData); return; }
       const key = `${m}|${dFrom || ""}|${dTo || ""}`;
       if (pnoKeyRef.current === key) return; // โหลดช่วงนี้ไว้แล้ว ไม่ต้องดึงซ้ำ
       pnoKeyRef.current = key;
-      setLoadingM(true);
+      setLoadingM(true); setPct(0);
       try {
         let start, end;
         if (dFrom && dTo) { // เลือกวัน/ช่วง → ดึงเฉพาะช่วงนั้น (ลด egress)
@@ -4373,14 +4390,26 @@ export default function FlashBackend() {
           start = new Date(yy, mm - 1, 1).toISOString();
           end = new Date(yy, mm, 1).toISOString();
         }
-        let all = [], pg = 0;
-        while (pg < 40) {
-          const from = pg * 1000;
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
-          const data = await res.json();
-          if (!Array.isArray(data) || !data.length) break;
-          all = all.concat(data); if (data.length < 1000) break; pg++;
+        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
+        // นับจำนวนก่อน แล้วยิงหน้าที่เหลือพร้อมกัน + อัปเดต %
+        const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
+        const first = await head.json();
+        const total = parseInt((head.headers.get("content-range") || "").split("/")[1], 10) || (Array.isArray(first) ? first.length : 0);
+        let all = Array.isArray(first) ? first : [];
+        let done = all.length;
+        const bump = (n) => { done += n; setPct(total ? Math.min(99, Math.round(done / total * 100)) : 0); };
+        bump(0);
+        const pages = Math.min(40, Math.ceil(total / 1000));
+        if (pages > 1) {
+          const reqs = [];
+          for (let p = 1; p < pages; p++) {
+            const from = p * 1000;
+            reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).then(d => { bump(Array.isArray(d) ? d.length : 0); return d; }).catch(() => []));
+          }
+          const rest = await Promise.all(reqs);
+          for (const chunk of rest) if (Array.isArray(chunk)) all = all.concat(chunk);
         }
+        setPct(100);
         setRows(all);
       } catch { setRows([]); }
       setLoadingM(false);
@@ -4530,7 +4559,8 @@ export default function FlashBackend() {
               <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#4f46e5" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
               <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#4f46e5" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
               <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#4f46e5" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {rangeLabel}{loadingM ? " · กำลังโหลด…" : ` · ${(rows || []).length} รายการ`}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {rangeLabel}{loadingM ? ` · ⏳ กำลังโหลด ${pct}%` : ` · ${(rows || []).length} รายการ`}</span>
+              {loadingM && <span style={{ display: "inline-block", width: 140, height: 8, background: "#e2e8f0", borderRadius: 99, overflow: "hidden", verticalAlign: "middle" }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: "#4f46e5", borderRadius: 99, transition: "width .25s ease" }} /></span>}
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
               <div>
