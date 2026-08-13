@@ -1353,6 +1353,7 @@ export default function FlashBackend() {
   const [pnoFrom, setPnoFrom] = useState("");
   const [pnoTo, setPnoTo] = useState("");
   const [pnoSep, setPnoSep] = useState("newline");
+  const [loadPct, setLoadPct] = useState(0); // % ความคืบหน้าการโหลดพัสดุ
   // เดือน/ข้อมูลของหน้า Export — เก็บระดับ App เพื่อไม่ให้รีเซ็ตกลับเดือนปัจจุบันเวลาหน้า re-render
   const [eMonth, setEMonth] = useState(curMonthKey);
   const [exportRows, setExportRows] = useState(null);
@@ -1377,7 +1378,7 @@ export default function FlashBackend() {
 
   const loadParcels = useCallback(async () => {
     if (isDemo) { setParcels(demoData); setLoading(false); return; }
-    setLoading(true);
+    setLoading(true); setLoadPct(0);
     try {
       // โหลดเฉพาะเดือนที่เลือก (ลด egress) — กรองด้วย created_at
       const [yy, mm] = month.split("-").map(Number);
@@ -1390,17 +1391,21 @@ export default function FlashBackend() {
       const cr = head.headers.get("content-range") || "";
       const total = parseInt(cr.split("/")[1], 10) || (Array.isArray(first) ? first.length : 0);
       let all = Array.isArray(first) ? first : [];
+      let done = all.length;
+      const bump = (n) => { done += n; setLoadPct(total ? Math.min(99, Math.round(done / total * 100)) : 0); };
+      bump(0);
       // 2) หน้าที่เหลือ → ยิงพร้อมกันทั้งหมด (parallel) แทนต่อคิว → เร็วขึ้นมาก
       const pages = Math.min(30, Math.ceil(total / 1000));
       if (pages > 1) {
         const reqs = [];
         for (let p = 1; p < pages; p++) {
           const from = p * 1000;
-          reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).catch(() => []));
+          reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).then(d => { bump(Array.isArray(d) ? d.length : 0); return d; }).catch(() => []));
         }
         const rest = await Promise.all(reqs);
         for (const chunk of rest) if (Array.isArray(chunk)) all = all.concat(chunk);
       }
+      setLoadPct(100);
       setParcels(all);
     } catch {} setLoading(false);
   }, [isDemo, demoData, month]);
@@ -3344,7 +3349,7 @@ export default function FlashBackend() {
         <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#111" }}>📊 Dashboard</h2>
-            <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>สรุปภาพรวมระบบจัดการพัสดุ — {new Date().toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}{loading && <span style={{ color: "#6366f1", fontWeight: 700 }}> · ⏳ กำลังโหลด…</span>}</p>
+            <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>สรุปภาพรวมระบบจัดการพัสดุ — {new Date().toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}{loading && <span style={{ color: "#6366f1", fontWeight: 700 }}> · ⏳ กำลังโหลด {loadPct}%</span>}</p>
           </div>
           <button onClick={() => loadParcels()} disabled={loading} style={{ padding: "9px 18px", borderRadius: 10, border: "1.5px solid #e5e7eb", background: "#fff", color: "#4f46e5", fontWeight: 700, fontSize: 14, cursor: loading ? "default" : "pointer", opacity: loading ? 0.5 : 1, whiteSpace: "nowrap" }}>🔄 โหลดข้อมูลใหม่</button>
         </div>
@@ -3352,7 +3357,12 @@ export default function FlashBackend() {
         {loading && parcels.length === 0 && (
           <div style={{ marginBottom: 20, background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 22 }}>⏳</span>
-            <div style={{ fontWeight: 700, color: "#4338ca" }}>กำลังโหลดข้อมูลพัสดุ… <span style={{ fontWeight: 500, color: "#6366f1" }}>(ถ้ามีพัสดุจำนวนมากอาจใช้เวลาสักครู่)</span></div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, color: "#4338ca", marginBottom: 8 }}>กำลังโหลดข้อมูลพัสดุ… {loadPct}%</div>
+              <div style={{ height: 10, background: "#e0e7ff", borderRadius: 99, overflow: "hidden" }}>
+                <div style={{ width: `${loadPct}%`, height: "100%", background: "linear-gradient(90deg,#6366f1,#4f46e5)", borderRadius: 99, transition: "width .25s ease" }} />
+              </div>
+            </div>
           </div>
         )}
         {!loading && parcels.length === 0 && (
@@ -4818,7 +4828,12 @@ export default function FlashBackend() {
                     {cancelProgress && <div style={{ flex: 1, minWidth: 150 }}><div style={{ fontSize: 11, color: "#dc2626", marginBottom: 3 }}>กำลังยกเลิก... {cancelProgress.done}/{cancelProgress.total}</div><div style={{ width: "100%", height: 6, background: "#fee2e2", borderRadius: 3 }}><div style={{ width: `${(cancelProgress.done / cancelProgress.total) * 100}%`, height: "100%", background: "#dc2626", borderRadius: 3, transition: ".3s" }} /></div></div>}
                   </div>
                 )}
-                {loading ? <div style={{ padding: 60, textAlign: "center", color: "#94a3b8" }}>⏳ กำลังโหลด...</div> : !paged.length ? <div style={{ padding: 60, textAlign: "center", color: "#94a3b8" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 8 }}>ไม่พบพัสดุ</div></div> : (
+                {loading ? <div style={{ padding: 60, textAlign: "center", color: "#64748b" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>⏳ กำลังโหลด {loadPct}%</div>
+                  <div style={{ maxWidth: 320, margin: "0 auto", height: 10, background: "#e2e8f0", borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{ width: `${loadPct}%`, height: "100%", background: "linear-gradient(90deg,#6366f1,#4f46e5)", borderRadius: 99, transition: "width .25s ease" }} />
+                  </div>
+                </div> : !paged.length ? <div style={{ padding: 60, textAlign: "center", color: "#94a3b8" }}><div style={{ fontSize: 40 }}>📭</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 8 }}>ไม่พบพัสดุ</div></div> : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                       <thead><tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
