@@ -217,6 +217,8 @@ function fmtFlashDate(v, mode) {
     : d.toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function curMonthKey() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+
 function generateParcelNo() {
   const now = new Date();
   const d = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
@@ -1351,6 +1353,14 @@ export default function FlashBackend() {
   const [pnoFrom, setPnoFrom] = useState("");
   const [pnoTo, setPnoTo] = useState("");
   const [pnoSep, setPnoSep] = useState("newline");
+  // เดือน/ข้อมูลของหน้า Export — เก็บระดับ App เพื่อไม่ให้รีเซ็ตกลับเดือนปัจจุบันเวลาหน้า re-render
+  const [eMonth, setEMonth] = useState(curMonthKey);
+  const [exportRows, setExportRows] = useState(null);
+  const [exportLoadingM, setExportLoadingM] = useState(false);
+  const [pMonth, setPMonth] = useState(curMonthKey);
+  const [pnoRows, setPnoRows] = useState(null);
+  const [pnoLoadingM, setPnoLoadingM] = useState(false);
+  const exportKeyRef = useRef(""); const pnoKeyRef = useRef("");
   const [summaryPeriod, setSummaryPeriod] = useState("daily");
   const [summaryFrom, setSummaryFrom] = useState(new Date().toISOString().slice(0, 10));
   const [summaryTo, setSummaryTo] = useState(new Date().toISOString().slice(0, 10));
@@ -4028,12 +4038,14 @@ export default function FlashBackend() {
       return s || "(ไม่ระบุ)";
     };
 
-    const curMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-    const [eMonth, setEMonth] = useState(curMonth);
-    const [rows, setRows] = useState(null);
-    const [loadingM, setLoadingM] = useState(false);
+    const curMonth = curMonthKey;
+    const rows = exportRows, setRows = setExportRows;
+    const loadingM = exportLoadingM, setLoadingM = setExportLoadingM;
     const loadMonth = useCallback(async (m, dFrom, dTo) => {
       if (isDemo) { setRows(demoData); return; }
+      const key = `${m}|${dFrom || ""}|${dTo || ""}`;
+      if (exportKeyRef.current === key) return; // โหลดช่วงนี้ไว้แล้ว ไม่ต้องดึงซ้ำ
+      exportKeyRef.current = key;
       setLoadingM(true);
       try {
         let start, end;
@@ -4332,12 +4344,14 @@ export default function FlashBackend() {
   // ═══ EXPORT เลขพัสดุ PAGE — รายการเลข Tracking ล้วน ๆ (คัดลอก / ดาวน์โหลด .txt) ═══
   const ExportPnoPage = () => {
     const I = { padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit" };
-    const curMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-    const [pMonth, setPMonth] = useState(curMonth);
-    const [rows, setRows] = useState(null);
-    const [loadingM, setLoadingM] = useState(false);
+    const curMonth = curMonthKey;
+    const rows = pnoRows, setRows = setPnoRows;
+    const loadingM = pnoLoadingM, setLoadingM = setPnoLoadingM;
     const loadMonth = useCallback(async (m, dFrom, dTo) => {
       if (isDemo) { setRows(demoData); return; }
+      const key = `${m}|${dFrom || ""}|${dTo || ""}`;
+      if (pnoKeyRef.current === key) return; // โหลดช่วงนี้ไว้แล้ว ไม่ต้องดึงซ้ำ
+      pnoKeyRef.current = key;
       setLoadingM(true);
       try {
         let start, end;
