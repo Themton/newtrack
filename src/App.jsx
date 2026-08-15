@@ -1983,7 +1983,28 @@ export default function FlashBackend() {
   };
 
   // ═══ UPSELL DATA — โหลดข้อมูล upsell ═══
-  const loadUpsell = useCallback(async () => { setUpsellLoading(true); try { const d = await sb.select("fx_upsell", { order: "created_at.desc" }); setUpsellData(d || []); } catch {} setUpsellLoading(false); }, [isDemo]);
+  const loadUpsell = useCallback(async () => {
+    setUpsellLoading(true);
+    try {
+      // ดึงครบทุกหน้า (Supabase จำกัด 1000 แถว/ครั้ง) — ไม่งั้นข้อมูลเดือนเก่าจะหาย
+      const base = `${SUPABASE_URL}/rest/v1/fx_upsell?select=*&order=created_at.desc`;
+      const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
+      const first = await head.json();
+      const total = parseInt((head.headers.get("content-range") || "").split("/")[1], 10) || (Array.isArray(first) ? first.length : 0);
+      let all = Array.isArray(first) ? first : [];
+      const pages = Math.min(40, Math.ceil(total / 1000));
+      if (pages > 1) {
+        const reqs = [];
+        for (let p = 1; p < pages; p++) {
+          const from = p * 1000;
+          reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).catch(() => []));
+        }
+        const rest = await Promise.all(reqs);
+        for (const chunk of rest) if (Array.isArray(chunk)) all = all.concat(chunk);
+      }
+      setUpsellData(all);
+    } catch {} setUpsellLoading(false);
+  }, [isDemo]);
   useEffect(() => { if (user && !isDemo) loadUpsell(); }, [user]);
 
   // Tracking page states
