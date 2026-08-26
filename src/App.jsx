@@ -9,6 +9,29 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const BASE_URL = SUPABASE_URL; // ใช้ Supabase ตรง
 
 // ═══════════════════════════════════════════════════════════════
+// COLUMN WHITELIST — ลด egress
+// สำคัญ: ห้ามใช้ select=* กับ fx_parcels เพราะจะลาก flash_api_response (JSONB
+// ก้อนใหญ่ 1-3 KB/แถว) มาด้วยทุกครั้ง → เป็นตัวกิน egress หลัก
+// flash_api_response จะดึงเฉพาะตอนปริ้น (hydrateApiResponse) เท่านั้น
+// ═══════════════════════════════════════════════════════════════
+const PARCEL_COLS = [
+  "id", "parcel_no", "shop_id", "source",
+  "sender_name", "sender_phone", "sender_address", "sender_province", "sender_district", "sender_subdistrict", "sender_postal",
+  "receiver_name", "receiver_phone", "receiver_address", "receiver_province", "receiver_district", "receiver_subdistrict", "receiver_postal",
+  "weight", "width", "length", "height", "item_desc", "quantity",
+  "declared_value", "shipping_fee", "cod_enabled", "cod_amount",
+  "flash_pno", "flash_sort_code", "flash_dst_code", "flash_status", "flash_detail", "flash_updated_at", "flash_state", "flash_checked_at",
+  "status", "label_printed", "label_printed_at", "remark",
+  "customer_fb_line", "sale_person", "sale_price", "upsell_by",
+  "cod_received", "cod_received_at",
+  "returned_received", "returned_received_at", "returned_received_by",
+  "created_by", "created_by_name", "created_at", "updated_at",
+].join(",");
+
+// คอลัมน์ขั้นต่ำสำหรับหน้า "แฟลชยังไม่เข้ารับ" (ไม่ต้องใช้ที่อยู่เต็ม)
+const NOTINFLASH_COLS = "id,parcel_no,flash_pno,flash_status,flash_detail,flash_updated_at,status,receiver_name,receiver_phone,receiver_province,receiver_district,created_at,created_by_name,shop_id,cod_amount";
+
+// ═══════════════════════════════════════════════════════════════
 // FLASH EXPRESS API CONFIG
 // ═══════════════════════════════════════════════════════════════
 const FLASH_ACCOUNTS = [
@@ -142,28 +165,31 @@ const flashApi = {
 let activeBaseUrl = BASE_URL;
 
 const sb = {
-  headers: () => ({
+  headers: (prefer = "return=representation") => ({
     apikey: SUPABASE_ANON_KEY,
     Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     "Content-Type": "application/json",
-    Prefer: "return=representation",
+    Prefer: prefer,
   }),
-  async query(table, { method = "GET", filters = "", body, order, limit } = {}) {
+  // returnRow = true เฉพาะตอนที่ต้องใช้แถวที่เขียนกลับมาจริงๆ (เช่น insert แล้วต้องรู้ id)
+  async query(table, { method = "GET", filters = "", body, order, limit, select, returnRow = false } = {}) {
     let url = `${SUPABASE_URL}/rest/v1/${table}`;
     const params = [];
     if (filters) params.push(filters);
     if (order) params.push(`order=${order}`);
-    if (method === "GET") params.push("select=*");
+    if (method === "GET") params.push(`select=${select || "*"}`);
     if (limit) params.push(`limit=${limit}`);
     if (params.length) url += `?${params.join("&")}`;
-    const hdrs = { ...this.headers() };
+    const isWrite = method !== "GET";
+    const hdrs = this.headers(isWrite && !returnRow ? "return=minimal" : "return=representation");
     if (method === "GET" && !limit) hdrs["Range"] = "0-9999"; // ดึงได้สูงสุด 10000 แถว
     const res = await fetch(url, { method, headers: hdrs, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || `HTTP ${res.status}`); }
-    return res.json();
+    if (res.status === 204) return null;              // return=minimal → ไม่มี body
+    return res.json().catch(() => null);
   },
   select: (t, o) => sb.query(t, { ...o, method: "GET" }),
-  insert: (t, b) => sb.query(t, { method: "POST", body: b }),
+  insert: (t, b, returnRow = false) => sb.query(t, { method: "POST", body: b, returnRow }),
   update: (t, id, b) => sb.query(t, { method: "PATCH", body: b, filters: `id=eq.${id}` }),
   delete: (t, id) => sb.query(t, { method: "DELETE", filters: `id=eq.${id}` }),
   broadcastChange: async () => { try { await sb.query("fx_settings", { method: "PATCH", body: { value: String(Date.now()) }, filters: "key=eq.last_updated" }); } catch {} },
@@ -1387,7 +1413,7 @@ export default function FlashBackend() {
       const [yy, mm] = month.split("-").map(Number);
       const start = new Date(yy, mm - 1, 1).toISOString();
       const end = new Date(yy, mm, 1).toISOString(); // ต้นเดือนถัดไป
-      const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&order=created_at.desc&created_at=gte.${start}&created_at=lt.${end}`;
+      const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${PARCEL_COLS}&order=created_at.desc&created_at=gte.${start}&created_at=lt.${end}`;
       // 1) นับจำนวนก่อน (เบา) เพื่อรู้ว่ากี่หน้า
       const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
       const first = await head.json();
@@ -1492,7 +1518,7 @@ export default function FlashBackend() {
         }
       }
       showToast(`อัพเดตสถานะ ${updated} รายการ`);
-      if (updated) loadParcels();
+      // (ไม่ต้อง loadParcels ซ้ำ — setParcels ด้านบนอัพเดตในหน่วยความจำแล้ว)
     } finally { setFlashRefreshing(false); }
   };
 
@@ -1504,7 +1530,7 @@ export default function FlashBackend() {
       // ยังไม่เข้าระบบ Flash = สถานะว่าง (ไม่มี state) หรือยังเป็นคำ "รอเข้ารับ/สร้างรายการ" เท่านั้น
       // (ตาม Flash Status Flow: state 1-9 = ยิงรับแล้วทั้งหมด) — ดึงกว้างไว้ แล้วกรองซ้ำฝั่ง client
       const notYet = FLASH_NOT_YET_KW.map(k => `flash_status.ilike.*${k}*`).join(",");
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.eq.,${notYet})&order=created_at.desc&limit=3000`;
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${NOTINFLASH_COLS}&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.eq.,${notYet})&order=created_at.desc&limit=3000`;
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
       // กรองซ้ำฝั่ง client ด้วย flashPickedUp: ตัดใบที่มี state ใดๆ (เข้ารับแล้ว) ออกเสมอ แม้ query เพี้ยน
@@ -1518,20 +1544,27 @@ export default function FlashBackend() {
   const mutating = useRef(false);
   useEffect(() => {
     if (!user || isDemo) return;
+    let debounce = null;
     const poll = setInterval(async () => {
       if (mutating.current) return;
+      if (document.hidden) return;              // แท็บถูกซ่อน → ไม่ต้องยิง (ประหยัด egress มาก)
       try {
-        const rows = await sb.select("fx_settings", { filters: "key=eq.last_updated" });
+        const rows = await sb.select("fx_settings", { select: "value", filters: "key=eq.last_updated" });
         const ts = rows?.[0]?.value || "0";
         if (ts !== lastTs.current && lastTs.current !== "0") {
-          const pg = activePageRef.current;
-          if (["parcels", "report", "dashboard"].includes(pg)) { refreshStatuses(); loadShops(); }
-          if (["parcels", "dashboard", "notinflash"].includes(pg)) loadNotInFlash();
+          // debounce: ตอน import/สร้างเลขทีละหลายร้อยใบ จะมี broadcast รัวๆ
+          // ถ้าไม่หน่วง ทุกแท็บจะโหลดข้อมูลใหม่ทุกครั้ง → egress พุ่ง
+          clearTimeout(debounce);
+          debounce = setTimeout(() => {
+            const pg = activePageRef.current;
+            if (["parcels", "report", "dashboard"].includes(pg)) { refreshStatuses(); loadShops(); }
+            if (["parcels", "dashboard", "notinflash"].includes(pg)) loadNotInFlash();
+          }, 4000);
         }
         lastTs.current = ts;
       } catch {}
-    }, 5000);
-    return () => clearInterval(poll);
+    }, 15000);
+    return () => { clearInterval(poll); clearTimeout(debounce); };
   }, [user, isDemo, refreshStatuses, loadShops, loadNotInFlash]);
 
   // ═══ AUTO-SYNC FLASH STATUS — ทุก 5 นาที + ตอนโหลดหน้า ═══
@@ -1569,10 +1602,30 @@ export default function FlashBackend() {
   const markPrinted = async (p) => {
     mutating.current = true;
     try {
-      await sb.update("fx_parcels", p.id, { label_printed: true, status: "printed" });
+      const upd = { label_printed: true, status: "printed" };
+      await sb.update("fx_parcels", p.id, upd);
+      setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...upd } : x)); // แก้ในหน่วยความจำ ไม่ต้องโหลดทั้งเดือนใหม่
       await sb.broadcastChange();
-      await loadParcels();
       showToast("✅ เปลี่ยนเป็นปริ้นแล้ว");
+    } catch (e) { uiAlert("❌ " + e.message); }
+    setTimeout(() => { mutating.current = false; }, 2000);
+  };
+
+  // ปริ้นหลายใบ → PATCH ครั้งเดียว + broadcast ครั้งเดียว (เดิมยิงทีละใบ ใบละ 2 request)
+  const markPrintedBulk = async (list) => {
+    if (!list.length) return;
+    const ids = new Set(list.map(p => p.id));
+    const upd = { label_printed: true, status: "printed" };
+    setParcels(prev => prev.map(x => ids.has(x.id) ? { ...x, ...upd } : x));
+    if (isDemo) return;
+    mutating.current = true;
+    try {
+      const arr = [...ids];
+      for (let i = 0; i < arr.length; i += 200) {
+        await sb.query("fx_parcels", { method: "PATCH", body: upd, filters: `id=in.(${arr.slice(i, i + 200).join(",")})` });
+      }
+      await sb.broadcastChange();
+      showToast(`✅ เปลี่ยนเป็นปริ้นแล้ว ${arr.length} ใบ`);
     } catch (e) { uiAlert("❌ " + e.message); }
     setTimeout(() => { mutating.current = false; }, 2000);
   };
@@ -1580,9 +1633,10 @@ export default function FlashBackend() {
   const markCreated = async (p) => {
     mutating.current = true;
     try {
-      await sb.update("fx_parcels", p.id, { label_printed: false, status: "created" });
+      const upd = { label_printed: false, status: "created" };
+      await sb.update("fx_parcels", p.id, upd);
+      setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...upd } : x));
       await sb.broadcastChange();
-      await loadParcels();
       showToast("เปลี่ยนกลับเป็นสร้างเลขแล้ว");
     } catch (e) { uiAlert("❌ " + e.message); }
     setTimeout(() => { mutating.current = false; }, 2000);
@@ -1750,7 +1804,27 @@ export default function FlashBackend() {
   }, [parcels, selectedIds]);
 
   // ═══ SHARED PRINT PAGE — CRM2 style (SVG barcode + QR local + jsPDF) ═══
-  const openPrintPage = (targets) => {
+  // ดึง flash_api_response (JSONB ก้อนใหญ่) เฉพาะใบที่จะปริ้นจริง — ไม่ลากมาทั้งเดือน
+  const hydrateApiResponse = async (targets) => {
+    const need = targets.filter(p => p.flash_pno && p.flash_api_response === undefined);
+    if (!need.length || isDemo) return targets;
+    try {
+      const map = {};
+      for (let i = 0; i < need.length; i += 200) {
+        const ids = need.slice(i, i + 200).map(p => p.id).join(",");
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=id,flash_api_response&id=in.(${ids})`, { headers: sb.headers() });
+        const rows = await res.json();
+        if (Array.isArray(rows)) rows.forEach(r => { map[r.id] = r.flash_api_response; });
+      }
+      return targets.map(p => map[p.id] !== undefined ? { ...p, flash_api_response: map[p.id] } : p);
+    } catch { return targets; }
+  };
+
+  const openPrintPage = async (rawTargets) => {
+    // ต้องเปิดหน้าต่างทันที (ก่อน await) ไม่งั้น popup blocker จะบล็อก เพราะ user gesture หลุด
+    const preWin = window.open("", "_blank");
+    if (preWin) preWin.document.write("<p style='font-family:sans-serif;padding:24px'>กำลังเตรียมใบปะหน้า…</p>");
+    const targets = await hydrateApiResponse(rawTargets);
     const maskPhone = (ph) => (ph || "").replace(/^(\d{3})\d{4}(\d{3})$/, "$1****$2");
     const now = new Date().toLocaleString("en-GB", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const total = targets.length;
@@ -1897,7 +1971,9 @@ export default function FlashBackend() {
     html += `renderAll();`;
     html += `<\/script></body></html>`;
 
-    const win = window.open("", "_blank");
+    const win = preWin || window.open("", "_blank");
+    if (!win) { uiAlert("เบราว์เซอร์บล็อกป๊อปอัพ — กรุณาอนุญาต popup สำหรับเว็บนี้"); return; }
+    win.document.open();
     win.document.write(html);
     win.document.close();
   };
@@ -2021,14 +2097,14 @@ export default function FlashBackend() {
       if (!trkSearch.trim()) return;
       setTrkLoading(true);
       try {
-        const q = trkSearch.trim().toLowerCase();
-        const all = parcelsRef.current.length ? parcelsRef.current : (await sb.select("fx_parcels", { order: "created_at.desc" })) || [];
-        const results = all.filter(p => 
-          (p.flash_pno || "").toLowerCase().includes(q) || 
-          (p.receiver_phone || "").includes(q) || 
-          (p.receiver_name || "").toLowerCase().includes(q)
-        );
-        setTrkResults(results.slice(0, 50));
+        const q = trkSearch.trim();
+        // ค้นหาฝั่งเซิร์ฟเวอร์ + limit — เดิมโหลดพัสดุทั้งตารางมากรองในเบราว์เซอร์
+        const enc = encodeURIComponent(`*${q}*`);
+        const cols = "id,parcel_no,flash_pno,flash_sort_code,flash_status,flash_detail,flash_updated_at,status,receiver_name,receiver_phone,receiver_address,receiver_province,receiver_district,cod_enabled,cod_amount,created_at,created_by_name";
+        const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${cols}&or=(flash_pno.ilike.${enc},receiver_phone.ilike.${enc},receiver_name.ilike.${enc})&order=created_at.desc&limit=50`;
+        const res = await fetch(url, { headers: sb.headers() });
+        const results = await res.json();
+        setTrkResults(Array.isArray(results) ? results : []);
       } catch {} 
       setTrkLoading(false);
     };
@@ -2533,7 +2609,7 @@ export default function FlashBackend() {
   const ActivityLogPage = () => {
     const [logs, setLogs] = useState(null);
     const [q, setQ] = useState("");
-    useEffect(() => { (async () => { try { const d = await sb.select("fx_activity_log", { order: "created_at.desc", limit: 300 }); setLogs(d || []); } catch { setLogs([]); } })(); }, []);
+    useEffect(() => { (async () => { try { const d = await sb.select("fx_activity_log", { select: "id,actor_name,action,detail,created_at", order: "created_at.desc", limit: 300 }); setLogs(d || []); } catch { setLogs([]); } })(); }, []);
     const icon = (a) => (a || "").includes("ลบ") ? "🗑️" : (a || "").includes("ยกเลิก") ? "❌" : (a || "").includes("สร้าง") ? "📦" : "•";
     const color = (a) => (a || "").includes("ลบ") ? "#dc2626" : (a || "").includes("ยกเลิก") ? "#f97316" : (a || "").includes("สร้าง") ? "#059669" : "#64748b";
     const filtered = (logs || []).filter(l => !q || [l.actor_name, l.detail, l.action].some(v => (v || "").toLowerCase().includes(q.toLowerCase())));
@@ -2587,7 +2663,7 @@ export default function FlashBackend() {
         let all = [], pg = 0;
         while (pg < 40) {
           const from = pg * 1000;
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/fx_parcels?select=${PARCEL_COLS}&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } });
           const d = await res.json();
           if (!Array.isArray(d) || !d.length) break;
           all = all.concat(d); if (d.length < 1000) break; pg++;
@@ -4098,7 +4174,7 @@ export default function FlashBackend() {
           start = new Date(yy, mm - 1, 1).toISOString();
           end = new Date(yy, mm, 1).toISOString();
         }
-        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
+        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${PARCEL_COLS}&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
         // นับจำนวนก่อน แล้วยิงหน้าที่เหลือพร้อมกัน + อัปเดต %
         const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
         const first = await head.json();
@@ -4418,7 +4494,7 @@ export default function FlashBackend() {
           start = new Date(yy, mm - 1, 1).toISOString();
           end = new Date(yy, mm, 1).toISOString();
         }
-        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=*&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
+        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${PARCEL_COLS}&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
         // นับจำนวนก่อน แล้วยิงหน้าที่เหลือพร้อมกัน + อัปเดต %
         const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
         const first = await head.json();
@@ -4822,7 +4898,7 @@ export default function FlashBackend() {
                         if (still) summary.push(`⏳ ยังไม่เข้าระบบ: ${still}`);
                         if (errors) summary.push(`❌ ไม่พบ/Error: ${errors}`);
                         uiAlert(`ผล Sync (แยกตาม account):\n${summary.join("\n")}\n\n--- รายละเอียด ---\n${details.join("\n")}`);
-                        if (updated) loadParcels();
+                        // (ไม่ต้อง loadParcels ซ้ำ — setParcels ด้านบนอัพเดตในหน่วยความจำแล้ว)
                       }} disabled={flashRefreshing} style={{ padding: "5px 14px", background: flashRefreshing ? "#94a3b8" : "#4f46e5", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: flashRefreshing ? "wait" : "pointer" }}>{flashRefreshing ? "⟳ กำลัง sync..." : `🔄 Sync ${notInFlash.length} รายการ`}</button>
                     </div>
                     <div style={{ maxHeight: 300, overflowY: "auto" }}>
@@ -5122,8 +5198,8 @@ export default function FlashBackend() {
             <button onClick={async () => {
               const toPrint = printPreview.filter(p => p._print !== false);
               if (!toPrint.length) { uiAlert("เลือกอย่างน้อย 1 รายการ"); return; }
-              openPrintPage(toPrint);
-              for (const p of toPrint) { markPrinted(p); }
+              await openPrintPage(toPrint);
+              await markPrintedBulk(toPrint);
               setSelectedIds(new Set());
               setPrintPreview(null);
             }} style={{ flex: 1, padding: 14, background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>🖨️ ปริ้น {printPreview.filter(p => p._print !== false).length} ใบ</button>
