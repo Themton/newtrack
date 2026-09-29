@@ -751,7 +751,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
   const handleSave = async () => {
     if (!form.receiver_name || !form.receiver_phone) { uiAlert("กรุณากรอกชื่อ+เบอร์ผู้รับ"); return; }
     setSaving(true);
-    try { const d = { ...form, carrier }; delete d.id; delete d.created_at; delete d.updated_at; if (locked) { ["carrier", "receiver_address", "receiver_subdistrict", "receiver_district", "receiver_province", "receiver_postal", "cod_enabled", "cod_amount"].forEach(key => delete d[key]); } if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
+try { const d = { ...form, carrier }; if (carrier === "flash") delete d.carrier; delete d.id; delete d.created_at; delete d.updated_at; if (locked) { ["carrier", "receiver_address", "receiver_subdistrict", "receiver_district", "receiver_province", "receiver_postal", "cod_enabled", "cod_amount"].forEach(key => delete d[key]); } if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
     setSaving(false);
   };
   const I = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
@@ -1804,7 +1804,6 @@ export default function FlashBackend() {
       if (result.code === 1 && result.data) {
         const updates = {
           flash_pno: result.data.pno || "",
-          carrier: "flash",
           flash_sort_code: result.data.sortCode || result.data.dstStoreName || "",
           flash_api_response: result.data,
           status: "created",
@@ -1893,7 +1892,7 @@ export default function FlashBackend() {
         const result = await flashApi.createOrder(p, getFlashAccount(p));
         console.log(`Flash batch [${i+1}/${targets.length}] ${p.receiver_name}:`, JSON.stringify(result));
         if (result.code === 1 && result.data) {
-          const updates = { carrier: "flash", flash_pno: result.data.pno || "", flash_sort_code: result.data.sortCode || result.data.dstStoreName || "", flash_api_response: result.data, status: "created" };
+          const updates = { flash_pno: result.data.pno || "", flash_sort_code: result.data.sortCode || result.data.dstStoreName || "", flash_api_response: result.data, status: "created" };
           if (!isDemo) await sb.update("fx_parcels", p.id, updates);
           setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
           success++;
