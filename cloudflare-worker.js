@@ -25,6 +25,58 @@ const FLASH_ACCOUNTS = ENV === "training"
 // บัญชีเริ่มต้น (ใช้เมื่อ request ไม่ได้ระบุ mchId)
 const DEFAULT_MCH = ENV === "training" ? "CA5610" : "CBC9351";
 
+// J&T Open Platform (UAT). Keep all values in Worker Secrets; never put them in App.jsx.
+
+function md5(input) {
+  const bytes = new TextEncoder().encode(input);
+  const bitLen = bytes.length * 8;
+  const words = new Uint32Array(((bytes.length + 9 + 63) >> 6) * 16);
+  for (let i = 0; i < bytes.length; i++) words[i >> 2] |= bytes[i] << ((i & 3) * 8);
+  words[bytes.length >> 2] |= 0x80 << ((bytes.length & 3) * 8);
+  words[words.length - 2] = bitLen >>> 0;
+  words[words.length - 1] = Math.floor(bitLen / 0x100000000);
+  let a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476;
+  const rol = (x, n) => (x << n) | (x >>> (32 - n));
+  const add = (x, y) => (x + y) >>> 0;
+  const k = Array.from({ length: 64 }, (_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 0x100000000) >>> 0);
+  const s = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+  for (let off = 0; off < words.length; off += 16) {
+    let A = a, B = b, C = c, D = d;
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16) { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+      const next = add(B, rol(add(add(A, F), add(k[i], words[off + g])), s[i]));
+      A = D; D = C; C = B; B = next;
+    }
+    a = add(a, A); b = add(b, B); c = add(c, C); d = add(d, D);
+  }
+  const out = new Uint8Array(16), vals = [a,b,c,d];
+  vals.forEach((v, i) => { out[i*4]=v&255; out[i*4+1]=(v>>>8)&255; out[i*4+2]=(v>>>16)&255; out[i*4+3]=(v>>>24)&255; });
+  return Array.from(out, x => x.toString(16).padStart(2, "0")).join("");
+}
+
+function base64(bytes) { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); }
+
+async function jtRequest(path, body, env) {
+  const apiAccount = env.JT_API_ACCOUNT;
+  const privateKey = env.JT_PRIVATE_KEY;
+  const businessPassword = env.JT_BUSINESS_PASSWORD;
+  if (!apiAccount || !privateKey || !businessPassword) return { code: 500, msg: "J&T Worker Secrets are not configured" };
+  const bizContent = { ...body, customerCode: env.JT_CUSTOMER_CODE, password: businessPassword };
+  if (!env.JT_CUSTOMER_CODE) throw new Error("J&T customer code is not configured");
+  const timestamp = Date.now();
+  const digestBytes = md5(JSON.stringify(bizContent) + privateKey).match(/../g).map(h => parseInt(h, 16));
+  const digest = base64(new Uint8Array(digestBytes));
+  const form = new URLSearchParams({ bizContent: JSON.stringify(bizContent) });
+  const base = env.JT_API_BASE || "https://demoopenapi.jtexpress.co.th";
+  if (!["https://demoopenapi.jtexpress.co.th", "https://ylopenapi.jtexpress.co.th"].includes(base)) throw new Error("Invalid J&T API base");
+  const res = await fetch(base + path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", apiAccount, digest, timestamp: String(timestamp) }, body: form, signal: AbortSignal.timeout(20000) });
+  return await res.json();
+}
+
 // ===== ค่าปรับแต่ง Auto-Sync =====
 const PER_RUN = 400;      // จำนวนพัสดุที่เช็กต่อ cron 1 รอบ
 const CONCURRENCY = 6;    // ยิง Flash พร้อมกันกี่ตัว (ปรับขึ้นได้ถ้า Flash ไม่บ่น rate limit)
@@ -117,6 +169,7 @@ async function syncFlash() {
     const staleBefore = new Date(Date.now() - STALE_MIN * 60000).toISOString();
     parcels = await sbQuery(
       "fx_parcels?select=id,flash_pno,flash_status,flash_detail,status,shop_id" +
+      "&or=(source.is.null,source.neq.jnt_uat)" +
       "&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled" +
       "&and=(or(flash_status.is.null,flash_status.not.in.(เซ็นรับแล้ว,คืนสำเร็จ)),or(flash_checked_at.is.null,flash_checked_at.lt." + staleBefore + "))" +
       "&order=flash_checked_at.asc.nullsfirst" +
@@ -201,7 +254,7 @@ export default {
     console.log("auto-sync:", JSON.stringify(result));
   },
 
-  async fetch(req) {
+  async fetch(req, env) {
     const origin = req.headers.get("Origin") || "";
     const allowed = ["https://themton.github.io", "http://localhost:5173", "http://localhost:3000"];
     const corsOrigin = allowed.includes(origin) ? origin : "https://themton.github.io";
@@ -211,7 +264,57 @@ export default {
     const url = new URL(req.url);
     const json = (data, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-    if (url.pathname === "/") return json({ status: "ok", version: "v3.4", features: ["flash-proxy", "supabase-proxy", "auto-sync"] });
+    if (url.pathname.startsWith("/jt-api/")) {
+      if (!env.JT_ACCESS_TOKEN) return json({ msg: "J&T access is not configured" }, 503);
+      const supplied = req.headers.get("Authorization") || "";
+      const enc = new TextEncoder();
+      const [actual, expected] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(supplied)), crypto.subtle.digest("SHA-256", enc.encode("Bearer " + env.JT_ACCESS_TOKEN))]);
+      let difference = 0;
+      const a = new Uint8Array(actual), b = new Uint8Array(expected);
+      for (let i = 0; i < a.length; i++) difference |= a[i] ^ b[i];
+      if (difference) return json({ msg: "J&T access denied" }, 401);
+      if (Number(req.headers.get("Content-Length") || 0) > 32768) return json({ msg: "Request too large" }, 413);
+    }
+
+    if (url.pathname === "/") return json({ status: "ok", version: "v3.5", features: ["flash-proxy", "jnt-uat-create-order", "jnt-cancel", "jnt-label", "supabase-proxy", "auto-sync"] });
+    if (url.pathname === "/jt-api/create" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      if (!body.customerCode || !body.txlogisticId || !body.sender || !body.receiver || !body.packageInfo) return json({ code: 400, msg: "J&T required fields are missing" }, 400);
+      for (const party of [body.sender, body.receiver]) {
+        if (!["name", "postCode", "mobile", "city", "prov", "address"].every(key => typeof party[key] === "string" && party[key].trim())) return json({ msg: "Sender/receiver address is incomplete" }, 400);
+        if (!/^\d{5}$/.test(party.postCode)) return json({ msg: "Invalid postal code" }, 400);
+      }
+      if (!Number.isFinite(Number(body.packageInfo.weight)) || Number(body.packageInfo.weight) <= 0) return json({ msg: "Invalid package weight" }, 400);
+      if (body.codInfo && (!Number.isFinite(Number(body.codInfo.codValue)) || Number(body.codInfo.codValue) <= 0)) return json({ msg: "Invalid COD amount" }, 400);
+      try { return json(await jtRequest("/webopenplatformapi/api/order/addOrder", body, env)); } catch { return json({ code: 500, msg: "J&T request failed; check order before retrying" }, 502); }
+    }
+    if (url.pathname === "/jt-api/cancel" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      if (!body.customerCode || !body.txlogisticId || !body.reason) return json({ code: 400, msg: "customerCode, txlogisticId and reason are required" }, 400);
+      try { return json(await jtRequest("/webopenplatformapi/api/order/cancelOrder", body, env)); } catch (e) { return json({ code: 500, msg: e.message }, 502); }
+    }
+    if (url.pathname === "/jt-api/label" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      if (!body.customerCode || !body.txlogisticId || !body.billCode) return json({ code: 400, msg: "customerCode, txlogisticId and billCode are required" }, 400);
+      try {
+        const type = Number(body.type || 1);
+        if (![1,2,3,4,5].includes(type)) return json({ msg: "Invalid label size" }, 400);
+        const result = await jtRequest("/webopenplatformapi/api/order/printOrder", { customerCode: body.customerCode, txlogisticId: body.txlogisticId, billCode: body.billCode, type }, env);
+        if (!body.asPdf || String(result.code) !== "1") return json(result);
+        if (result.data?.base64EncodeContent) {
+          const bytes = Uint8Array.from(atob(result.data.base64EncodeContent), ch => ch.charCodeAt(0));
+          return new Response(bytes, { headers: { ...cors, "Content-Type": "application/pdf", "Cache-Control": "no-store" } });
+        }
+        if (result.data?.urlContent) {
+          const target = new URL(result.data.urlContent);
+          if (target.protocol !== "https:" || !(target.hostname.endsWith(".jtexpress.co.th") || target.hostname.endsWith(".jtexpress.my"))) return json({ msg: "Invalid J&T PDF host" }, 502);
+          const pdf = await fetch(target.href, { redirect: "error", signal: AbortSignal.timeout(15000) });
+          if (!pdf.ok) return json({ msg: "J&T PDF download failed" }, 502);
+          return new Response(pdf.body, { headers: { ...cors, "Content-Type": "application/pdf", "Cache-Control": "no-store" } });
+        }
+        return json({ msg: "J&T returned no label" }, 502);
+      } catch { return json({ code: 500, msg: "J&T label request failed" }, 502); }
+    }
     if (url.pathname === "/sync") return json(await syncFlash());
 
     if (url.pathname === "/test") {
@@ -224,7 +327,7 @@ export default {
 
     if (url.pathname === "/status") {
       try {
-        const all = await sbQuery("fx_parcels?select=flash_status,flash_pno&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled") || [];
+        const all = await sbQuery("fx_parcels?select=flash_status,flash_pno&or=(source.is.null,source.neq.jnt_uat)&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled") || [];
         const c = { total: all.length, pending: 0, in_transit: 0, delivered: 0, no_status: 0 };
         all.forEach(p => {
           if (!p.flash_status) c.no_status++;
