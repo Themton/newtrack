@@ -77,26 +77,19 @@ const jtMd5B64 = (s) => btoa(String.fromCharCode(...jtMd5Raw(new TextEncoder().e
 const jtDigest = (bizContent) => jtMd5B64(bizContent + JT_PRIVATE_KEY);
 
 // ── เรียก J&T API ─────────────────────────────────────────────────
-// ⚠️ เอกสาร J&T สองฉบับขัดแย้งกัน:
-//    ฉบับทางการบอกว่า apiAccount/digest/timestamp อยู่ใน "Headers"
-//    ฉบับสรุปให้ทีมพัฒนาใส่ไว้ใน form body
-//    → ส่งทั้งสองที่ ปลอดภัยที่สุด ฝั่งที่ไม่ใช้จะเมินเอง
+// ✅ ยืนยันจากการเทส UAT แล้ว: auth ต้องอยู่ใน HEADERS เท่านั้น
+//    ถ้าส่งใน form body J&T ตอบ "digest is empty!" (code 145003052)
 async function callJT(path, biz) {
   const bizContent = JSON.stringify(biz);   // ต้องเป็น string เดียวกับที่ใช้เซ็น ห้ามแก้หลังจากนี้
-  const digest = jtDigest(bizContent);
-  const timestamp = String(Date.now());
-
-  const form = new URLSearchParams({ apiAccount: JT_API_ACCOUNT, digest, timestamp, bizContent });
-
   const res = await fetch(`${JT_BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       apiAccount: JT_API_ACCOUNT,
-      digest,
-      timestamp,
+      digest: jtDigest(bizContent),
+      timestamp: String(Date.now()),
     },
-    body: form.toString(),
+    body: new URLSearchParams({ bizContent }).toString(),
   });
   const text = await res.text();
   try { return JSON.parse(text); }
