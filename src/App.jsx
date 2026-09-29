@@ -710,6 +710,7 @@ function parseThaiAddress(raw) {
 function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) {
   const isEdit = !!parcel?.id;
   const locked = isEdit && !!parcel?.flash_pno; // สร้างเลขพัสดุแล้ว → ห้ามแก้ที่อยู่ + COD
+  const [carrier, setCarrier] = useState(() => parcel?.source === "jnt_uat" || parcel?.carrier === "jt" ? "jnt" : parcel?.carrier || (shops?.find(s => s.is_default) || shops?.[0])?.carrier || "flash");
   const [form, setForm] = useState(parcel || { sender_name: "", sender_phone: "", sender_address: "", sender_province: "", receiver_name: "", receiver_phone: "", receiver_address: "", receiver_province: "", receiver_district: "", receiver_subdistrict: "", receiver_postal: "", weight: 1, item_desc: "", sale_person: "", sale_price: 0, customer_fb_line: "", quantity: 1, cod_enabled: false, cod_amount: 0, remark: "" });
   const [saving, setSaving] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
@@ -750,7 +751,7 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
   const handleSave = async () => {
     if (!form.receiver_name || !form.receiver_phone) { uiAlert("กรุณากรอกชื่อ+เบอร์ผู้รับ"); return; }
     setSaving(true);
-    try { const d = { ...form }; delete d.id; delete d.created_at; delete d.updated_at; if (locked) { ["receiver_address", "receiver_subdistrict", "receiver_district", "receiver_province", "receiver_postal", "cod_enabled", "cod_amount"].forEach(key => delete d[key]); } if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
+    try { const d = { ...form, carrier }; delete d.id; delete d.created_at; delete d.updated_at; if (locked) { ["carrier", "receiver_address", "receiver_subdistrict", "receiver_district", "receiver_province", "receiver_postal", "cod_enabled", "cod_amount"].forEach(key => delete d[key]); } if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
     setSaving(false);
   };
   const I = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
@@ -766,6 +767,12 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
         <div style={{ padding: 24, maxHeight: "70vh", overflowY: "auto" }}>
           {locked && <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, fontSize: 13, color: "#b91c1c", fontWeight: 600 }}>🔒 พัสดุนี้สร้างเลขแล้ว ({parcel.flash_pno}) — แก้ไขที่อยู่และ COD ไม่ได้</div>}
           {/* ═══ เลือกร้านค้า ═══ */}
+          <div style={{ marginBottom: 20 }}>
+            <label htmlFor="parcel-carrier" style={L}>ขนส่ง</label>
+            <select id="parcel-carrier" value={carrier} onChange={e => setCarrier(e.target.value)} disabled={locked} style={{ ...I, background: locked ? "#f1f5f9" : "#fff" }}>
+              {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🏪 ร้านค้า / ผู้ส่ง</h3>
             {shops?.length > 0 && (
@@ -1766,7 +1773,7 @@ export default function FlashBackend() {
     const result = pending ? JSON.parse(pending) : await jtApi.createOrder(p);
     if (!result.data?.billCode) throw new Error("J&T ไม่ส่งเลขพัสดุกลับมา");
     localStorage.setItem(pendingKey, JSON.stringify(result));
-    const updates = { source: "jnt_uat", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: result.data, status: "created" };
+    const updates = { carrier: "jnt", source: "jnt_uat", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: result.data, status: "created" };
     await sb.update("fx_parcels", p.id, updates);
     localStorage.removeItem(pendingKey);
     setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
@@ -1797,6 +1804,7 @@ export default function FlashBackend() {
       if (result.code === 1 && result.data) {
         const updates = {
           flash_pno: result.data.pno || "",
+          carrier: "flash",
           flash_sort_code: result.data.sortCode || result.data.dstStoreName || "",
           flash_api_response: result.data,
           status: "created",
@@ -1864,7 +1872,7 @@ export default function FlashBackend() {
   const [jntAccess, setJntAccess] = useState("");
   const openCarrierPicker = (parcel = null) => {
     const targets = parcel ? [parcel] : parcels.filter(p => selectedIds.has(p.id));
-    const carriers = new Set(targets.map(p => shops.find(s => s.id === p.shop_id)?.carrier || "flash"));
+    const carriers = new Set(targets.map(p => p.carrier === "jt" ? "jnt" : p.carrier || shops.find(s => s.id === p.shop_id)?.carrier || "flash"));
     setSelectedCarrier(carriers.size === 1 ? [...carriers][0] : "flash");
     setCarrierRequest({ parcel });
   };
@@ -1885,7 +1893,7 @@ export default function FlashBackend() {
         const result = await flashApi.createOrder(p, getFlashAccount(p));
         console.log(`Flash batch [${i+1}/${targets.length}] ${p.receiver_name}:`, JSON.stringify(result));
         if (result.code === 1 && result.data) {
-          const updates = { flash_pno: result.data.pno || "", flash_sort_code: result.data.sortCode || result.data.dstStoreName || "", flash_api_response: result.data, status: "created" };
+          const updates = { carrier: "flash", flash_pno: result.data.pno || "", flash_sort_code: result.data.sortCode || result.data.dstStoreName || "", flash_api_response: result.data, status: "created" };
           if (!isDemo) await sb.update("fx_parcels", p.id, updates);
           setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
           success++;
