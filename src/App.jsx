@@ -40,6 +40,70 @@ const FLASH_ACCOUNTS = [
 ];
 const WORKER_URL = "https://newtrack-proxy.themtja.workers.dev";
 
+// J&T Open Platform — credentials stay in the Worker, never in the browser.
+const jtApi = {
+  accessToken: "",
+  labelType: 1,
+  headers() {
+    if (!this.accessToken) throw new Error("กรุณากรอกรหัสเข้าใช้งาน J&T UAT ที่แถบตั้งค่าก่อน");
+    return { "Content-Type": "application/json", Authorization: "Bearer " + this.accessToken };
+  },
+  async createOrder(parcel, options = {}) {
+    const required = [
+      ["ชื่อผู้ส่ง", parcel.sender_name], ["เบอร์ผู้ส่ง", parcel.sender_phone],
+      ["ที่อยู่ผู้ส่ง", parcel.sender_address], ["ที่อยู่ผู้รับ", parcel.receiver_address],
+      ["จังหวัดผู้ส่ง", parcel.sender_province], ["อำเภอผู้ส่ง", parcel.sender_district], ["รหัสไปรษณีย์ผู้ส่ง", parcel.sender_postal],
+      ["ชื่อผู้รับ", parcel.receiver_name], ["เบอร์ผู้รับ", parcel.receiver_phone],
+      ["จังหวัดผู้รับ", parcel.receiver_province], ["อำเภอผู้รับ", parcel.receiver_district], ["รหัสไปรษณีย์ผู้รับ", parcel.receiver_postal],
+    ].filter(([, value]) => !value).map(([label]) => label);
+    if (required.length) throw new Error("ข้อมูล J&T ไม่ครบ:\n" + required.join(", "));
+    const now = new Date();
+    const dateTime = now.toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" }).replace("T", " ");
+    const endTime = new Date(now.getTime() + 86400000).toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" });
+    if (!parcel.parcel_no) throw new Error("ต้องบันทึกรายการก่อนสร้างเลข J&T");
+    if (!Number.isFinite(Number(parcel.weight)) || Number(parcel.weight) <= 0) throw new Error("น้ำหนักต้องมากกว่า 0");
+    const body = {
+      actionType: "add", customerCode: options.customerCode || "VIP111111761",
+      txlogisticId: parcel.parcel_no || ("MT" + Date.now()), orderType: "1", serviceType: "1",
+      payType: "PP_PM", expressType: "EZ", deliveryType: 1,
+      shopId: options.shopId, shopName: options.shopName, goodsValue: Number(parcel.declared_value || parcel.sale_price || 0).toFixed(2),
+      isSmallEcom: "0", createOrderTime: dateTime, sendStartTime: dateTime, sendEndTime: endTime,
+      sender: { name: parcel.sender_name, postCode: String(parcel.sender_postal), mobile: parcel.sender_phone, city: parcel.sender_district, prov: parcel.sender_province, area: parcel.sender_subdistrict || "", address: parcel.sender_address || parcel.sender_name, countryCode: "THA" },
+      receiver: { name: parcel.receiver_name, postCode: String(parcel.receiver_postal), mobile: parcel.receiver_phone, city: parcel.receiver_district, prov: parcel.receiver_province, area: parcel.receiver_subdistrict || "", address: parcel.receiver_address || parcel.receiver_name, countryCode: "THA" },
+      packageInfo: { packageQuantity: 1, weight: Number(Number(parcel.weight).toFixed(3)), ...(parcel.length ? { length: Number(parcel.length) } : {}), ...(parcel.width ? { width: Number(parcel.width) } : {}), ...(parcel.height ? { height: Number(parcel.height) } : {}) },
+      ...(Number(parcel.declared_value || parcel.sale_price) > 0 ? { items: [{ itemName: (parcel.item_desc || "สินค้า").slice(0, 80), number: Number(parcel.quantity || 1), itemDesc: (parcel.item_desc || "").slice(0,200), itemValue: Number(parcel.declared_value || parcel.sale_price) }] } : {}),
+      ...(parcel.cod_enabled ? { codInfo: { codValue: Number(parcel.cod_amount || 0).toFixed(2) } } : {}),
+      remark: parcel.remark || "",
+    };
+    const res = await fetch(`${WORKER_URL}/jt-api/create`, { method: "POST", headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(25000) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || String(data.code) !== "1") throw new Error(data.msg || "J&T สร้างเลขพัสดุไม่สำเร็จ");
+    return data;
+  },
+  async cancelOrder(parcel, reason = "The customer cancelled the order") {
+    const body = { customerCode: parcel.customerCode || "VIP111111761", txlogisticId: parcel.parcel_no, billCode: parcel.jt_pno || parcel.flash_pno, reason };
+    const res = await fetch(`${WORKER_URL}/jt-api/cancel`, { method: "POST", headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(25000) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || String(data.code) !== "1") throw new Error(data.msg || "J&T ยกเลิกออเดอร์ไม่สำเร็จ");
+    return data;
+  },
+  async fetchLabelBytes(parcel, type = this.labelType) {
+    const body = { customerCode: parcel.customerCode || "VIP111111761", txlogisticId: parcel.parcel_no, billCode: parcel.flash_pno, type, asPdf: true };
+    const res = await fetch(`${WORKER_URL}/jt-api/label`, { method: "POST", headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+    if (!res.ok || !res.headers.get("Content-Type")?.includes("application/pdf")) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.msg || "J&T ขอใบปะหน้าไม่สำเร็จ");
+    }
+    return res.arrayBuffer();
+  },
+  async fetchLabel(parcel, type = this.labelType) {
+    const bytes = await this.fetchLabelBytes(parcel, type);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const a = document.createElement("a"); a.href = url; a.download = `jnt-${parcel.flash_pno}.pdf`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  },
+};
+
 // Flash Express API — calls Worker (keys are in Worker, NOT here)
 const flashApi = {
   getAccount(mchId) {
@@ -711,6 +775,8 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
             <F label="ที่อยู่" k="sender_address" ph="ที่อยู่" span={2} />
             <div><label style={L}>จังหวัด</label><select value={form.sender_province || ""} onChange={e => set("sender_province", e.target.value)} style={{ ...I, background: "#fff" }}><option value="">--</option>{PROVINCES.map(p => <option key={p}>{p}</option>)}</select></div>
             <F label="ไปรษณีย์" k="sender_postal" ph="XXXXX" />
+            <F label="อำเภอ/เขตผู้ส่ง (J&T)" k="sender_district" ph="อำเภอ/เขต" disabled={locked} />
+            <F label="ตำบล/แขวงผู้ส่ง" k="sender_subdistrict" ph="ตำบล/แขวง" disabled={locked} />
           </div>
 
           {/* ═══ ผู้รับ + ปุ่มวางที่อยู่ ═══ */}
@@ -1251,7 +1317,7 @@ function PublicTracking() {
     setLoading(true); setResults(null);
     try {
       const enc = encodeURIComponent(term);
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?or=(flash_pno.eq.${enc},receiver_phone.eq.${enc})&select=flash_pno,flash_sort_code,receiver_name,receiver_province,receiver_district,flash_status,flash_detail,flash_updated_at,created_at,status&order=created_at.desc&limit=20`;
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?and=(or(source.is.null,source.neq.jnt_uat))&or=(flash_pno.eq.${enc},receiver_phone.eq.${enc})&select=flash_pno,flash_sort_code,receiver_name,receiver_province,receiver_district,flash_status,flash_detail,flash_updated_at,created_at,status&order=created_at.desc&limit=20`;
       const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } });
       setResults(res.ok ? await res.json() : []);
     } catch { setResults([]); }
@@ -1327,7 +1393,7 @@ export default function FlashBackend() {
   activePageRef.current = activePage;
 
   const handleLogin = (u) => { const safe = { id: u.id, username: u.username, display_name: u.display_name, role: u.role, avatar_color: u.avatar_color }; setUser(safe); try { sessionStorage.setItem("fx_user", JSON.stringify(safe)); } catch {} };
-  const handleLogout = () => { setUser(null); setParcels([]); setActivePageRaw("parcels"); try { sessionStorage.removeItem("fx_user"); sessionStorage.removeItem("fx_page"); } catch {} };
+  const handleLogout = () => { jtApi.accessToken = ""; setUser(null); setParcels([]); setActivePageRaw("parcels"); try { sessionStorage.removeItem("fx_user"); sessionStorage.removeItem("fx_page"); } catch {} };
 
   // ถ้า user ไม่มีสิทธิ์เข้าหน้าปัจจุบัน → ไปหน้า parcels
   useEffect(() => {
@@ -1488,7 +1554,7 @@ export default function FlashBackend() {
   // ═══ REFRESH FLASH STATUS — ดึงสถานะจริงจาก Flash API ═══
   const [flashRefreshing, setFlashRefreshing] = useState(false);
   const refreshFlashStatus = async () => {
-    const toCheck = parcels.filter(p => p.flash_pno && p.status !== "cancelled" && p.flash_status !== "เซ็นรับแล้ว" && p.flash_status !== "คืนสำเร็จ");
+    const toCheck = parcels.filter(p => p.source !== "jnt_uat" && p.flash_pno && p.status !== "cancelled" && p.flash_status !== "เซ็นรับแล้ว" && p.flash_status !== "คืนสำเร็จ");
     if (!toCheck.length) { showToast("ไม่มีรายการที่ต้องอัพเดต"); return; }
     setFlashRefreshing(true);
     let updated = 0;
@@ -1530,7 +1596,7 @@ export default function FlashBackend() {
       // ยังไม่เข้าระบบ Flash = สถานะว่าง (ไม่มี state) หรือยังเป็นคำ "รอเข้ารับ/สร้างรายการ" เท่านั้น
       // (ตาม Flash Status Flow: state 1-9 = ยิงรับแล้วทั้งหมด) — ดึงกว้างไว้ แล้วกรองซ้ำฝั่ง client
       const notYet = FLASH_NOT_YET_KW.map(k => `flash_status.ilike.*${k}*`).join(",");
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${NOTINFLASH_COLS}&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.eq.,${notYet})&order=created_at.desc&limit=3000`;
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${NOTINFLASH_COLS}&and=(or(source.is.null,source.neq.jnt_uat))&flash_pno=not.is.null&flash_pno=neq.&status=neq.cancelled&or=(flash_status.is.null,flash_status.eq.,${notYet})&order=created_at.desc&limit=3000`;
       const res = await fetch(url, { headers: sb.headers() });
       const data = await res.json();
       // กรองซ้ำฝั่ง client ด้วย flashPickedUp: ตัดใบที่มี state ใดๆ (เข้ารับแล้ว) ออกเสมอ แม้ query เพี้ยน
@@ -1596,7 +1662,7 @@ export default function FlashBackend() {
   const stats = useMemo(() => ({ total: statsData.length, draft: statsData.filter(p => p.status === "draft").length, created: statsData.filter(p => p.status === "created").length, printed: statsData.filter(p => p.status === "printed").length, cancelled: statsData.filter(p => p.status === "cancelled").length, codTotal: statsData.filter(p => p.cod_enabled).reduce((s, p) => s + Number(p.cod_amount || 0), 0) }), [statsData]);
 
   // แจ้งเตือน: พัสดุที่มีเลข Tracking แต่ Flash ยังไม่รับเข้าระบบ
-  const notInFlash = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled" && !flashPickedUp(p)), [parcels]);
+  const notInFlash = useMemo(() => parcels.filter(p => p.source !== "jnt_uat" && p.flash_pno && p.status !== "cancelled" && !flashPickedUp(p)), [parcels]);
 
   const handleDelete = async (p) => { if (!await uiConfirm(`ลบ "${p.receiver_name}"?`)) return; if (isDemo) { setParcels(prev => prev.filter(x => x.id !== p.id)); return; } mutating.current = true; try { await sb.delete("fx_parcels", p.id); setParcels(prev => prev.filter(x => x.id !== p.id)); showToast("ลบสำเร็จ"); logActivity("ลบพัสดุ", `${p.parcel_no || ""} · ${p.receiver_name}`); await sb.broadcastChange(); } catch (e) { uiAlert(e.message); } setTimeout(() => { mutating.current = false; }, 1000); };
   const markPrinted = async (p) => {
@@ -1678,9 +1744,30 @@ export default function FlashBackend() {
   const logActivity = async (action, detail) => { try { if (!isDemo) await sb.insert("fx_activity_log", { actor_id: user?.id || null, actor_name: user?.display_name || "", action, detail }); } catch {} };
   // Get Flash account for a parcel (from its shop)
   const getFlashAccount = (p) => {
+    if (p.source === "jnt_uat") throw new Error("รายการ J&T ไม่สามารถส่งไป Flash ได้");
     const shop = shops?.find(s => s.id === p.shop_id);
     const mchId = shop?.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId;
     return flashApi.getAccount(mchId);
+  };
+
+  const createJtOrder = async (p) => {
+    if (p.flash_pno || isDemo) { uiAlert("ใช้รายการจริงที่ยังไม่มีเลขพัสดุสำหรับทดสอบ J&T"); return; }
+    if (!await uiConfirm(`สร้างออเดอร์ J&T UAT สำหรับ ${p.receiver_name}?\nเลขที่ได้ใช้ทดสอบเท่านั้น ไม่ใช่ใบส่งของจริง`)) return;
+    setFlashLoading(p.id);
+    try {
+      const pendingKey = "jnt-pending-" + p.id;
+      const pending = localStorage.getItem(pendingKey);
+      const result = pending ? JSON.parse(pending) : await jtApi.createOrder(p);
+      if (!result.data?.billCode) throw new Error("J&T ไม่ส่งเลขพัสดุกลับมา");
+      localStorage.setItem(pendingKey, JSON.stringify(result));
+      const updates = { source: "jnt_uat", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: result.data, status: "created" };
+      await sb.update("fx_parcels", p.id, updates);
+      localStorage.removeItem(pendingKey);
+      setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
+      await sb.broadcastChange();
+      showToast(`J&T UAT: ${result.data.billCode}`);
+    } catch (e) { uiAlert(e.message); }
+    finally { setFlashLoading(null); }
   };
 
   const createFlashOrder = async (p) => {
@@ -1714,6 +1801,19 @@ export default function FlashBackend() {
   };
 
   const cancelFlashOrder = async (p) => {
+    if (p.source === "jnt_uat") {
+      if (!await uiConfirm(`ยกเลิกออเดอร์ J&T UAT ${p.flash_pno}?`)) return;
+      setFlashLoading(p.id);
+      try {
+        await jtApi.cancelOrder(p);
+        if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" });
+        setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x));
+        await sb.broadcastChange();
+        showToast("ยกเลิก J&T สำเร็จ");
+      } catch (e) { uiAlert(e.message); }
+      finally { setFlashLoading(null); }
+      return;
+    }
     if (!p.flash_pno) { uiAlert("พัสดุนี้ยังไม่มีเลข Tracking"); return; }
     if (!await uiConfirm(`ยกเลิกเลขพัสดุ?\n\n${p.flash_pno}\nผู้รับ: ${p.receiver_name}\n\n⚠️ จะยกเลิกจากระบบ Flash Express ด้วย`)) return;
     mutating.current = true;
@@ -1821,6 +1921,23 @@ export default function FlashBackend() {
   };
 
   const openPrintPage = async (rawTargets) => {
+    if (rawTargets.some(p => p.source === "jnt_uat")) {
+      try {
+        const { PDFDocument } = await import("pdf-lib");
+        const merged = await PDFDocument.create();
+        for (const p of rawTargets) {
+          const bytes = p.source === "jnt_uat" ? await jtApi.fetchLabelBytes(p) : await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small");
+          const doc = await PDFDocument.load(bytes);
+          const pages = await merged.copyPages(doc, doc.getPageIndices());
+          pages.forEach(page => merged.addPage(page));
+        }
+        const url = URL.createObjectURL(new Blob([await merged.save()], { type: "application/pdf" }));
+        const tab = window.open(url, "_blank");
+        if (!tab) { const a = document.createElement("a"); a.href = url; a.download = "shipping-labels.pdf"; a.click(); }
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        return true;
+      } catch (e) { uiAlert("ขอใบปะหน้าไม่สำเร็จ: " + e.message); return false; }
+    }
     // ต้องเปิดหน้าต่างทันที (ก่อน await) ไม่งั้น popup blocker จะบล็อก เพราะ user gesture หลุด
     const preWin = window.open("", "_blank");
     if (preWin) preWin.document.write("<p style='font-family:sans-serif;padding:24px'>กำลังเตรียมใบปะหน้า…</p>");
@@ -2015,7 +2132,7 @@ export default function FlashBackend() {
       const slice = targets.slice(i, i + CONC);
       await Promise.all(slice.map(async (p) => {
         try {
-          const result = await flashApi.cancelOrder(p.flash_pno, getFlashAccount(p));
+          const result = p.source === "jnt_uat" ? await jtApi.cancelOrder(p) : await flashApi.cancelOrder(p.flash_pno, getFlashAccount(p));
           if (result.code === 1 || result.code === 1032) {
             if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" });
             setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x));
@@ -4808,6 +4925,15 @@ export default function FlashBackend() {
         <div style={{ padding: activePage === "parcels" ? "0" : "24px" }}>
           {/* ═══ PARCELS PAGE ═══ */}
           {activePage === "parcels" && (<>
+            {(perm.status || perm.print) && <div style={{ padding: "12px 24px", background: "#fff1f2", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <label htmlFor="jnt-access">J&T UAT — รหัสเข้าใช้งาน</label>
+              <input id="jnt-access" type="password" autoComplete="off" onChange={e => { jtApi.accessToken = e.target.value; }} placeholder="รหัสสำหรับทดสอบ J&T" style={{ padding: 8, fontSize: 14 }} />
+              <span>เลขทดสอบ ใช้ส่งพัสดุจริงไม่ได้</span>
+              <label htmlFor="jnt-size">ขนาดใบปะหน้า</label>
+              <select id="jnt-size" defaultValue="1" onChange={e => { jtApi.labelType = Number(e.target.value); }}>
+                <option value="1">150 × 100 mm</option><option value="2">100 × 75 mm</option><option value="3">100 × 80 mm</option><option value="4">100 × 100 mm</option><option value="5">76 × 100 mm</option>
+              </select>
+            </div>}
             {/* STATUS TABS */}
             <div style={{ borderBottom: "2px solid #e2e8f0", overflowX: "auto", display: "flex" }}>
               {STATUS_TABS.map(s => { const cnt = s.key === "ALL" ? statsData.length : statsData.filter(p => p.status === s.key).length; const active = statusFilter === s.key; return <button key={s.key} onClick={() => { setStatusFilter(s.key); setPage(0); }} style={{ padding: "12px 18px", border: "none", borderBottom: active ? `3px solid ${s.color}` : "3px solid transparent", background: "transparent", color: active ? s.color : "#64748b", fontSize: 13, fontWeight: active ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}><span>{s.icon}</span>{s.label}{cnt > 0 && <span style={{ background: active ? s.color : "#e2e8f0", color: active ? "#fff" : "#64748b", padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{cnt}</span>}</button>; })}
@@ -5007,6 +5133,8 @@ export default function FlashBackend() {
                               {perm.edit && !p.flash_pno && <button title="แก้ไข" onClick={() => { setEditParcel(p); setShowForm(true); }} style={{ width: 26, height: 26, border: "1px solid #e2e8f0", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>}
                               {perm.delete && p.status !== "cancelled" && <button title="ลบ" onClick={() => handleDelete(p)} style={{ width: 26, height: 26, border: "1px solid #fca5a5", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>🗑️</button>}
                             </>}
+                            {perm.status && !p.flash_pno && <button onClick={() => createJtOrder(p)} disabled={flashLoading === p.id} title="สร้างเลข J&T UAT" style={{ cursor: "pointer", border: "1px solid #dc2626", background: "#fff", color: "#dc2626", borderRadius: 4 }}>J&T UAT</button>}
+                            {perm.print && p.source === "jnt_uat" && p.flash_pno && p.status !== "cancelled" && <button onClick={() => jtApi.fetchLabel(p).catch(e => uiAlert(e.message))} style={{ cursor: "pointer" }}>ใบปะหน้า J&T</button>}
                             <button title="ดูรายละเอียด" onClick={() => setViewParcel(p)} style={{ width: 26, height: 26, border: "1px solid #e2e8f0", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>👁️</button>
                           </div></td>
                         </tr>); })}</tbody>
@@ -5122,7 +5250,7 @@ export default function FlashBackend() {
                   for (let i = 0; i < list.length; i += CONCURRENCY) {
                     const slice = list.slice(i, i + CONCURRENCY);
                     await Promise.all(slice.map(async (p, j) => {
-                      try { results[i + j] = await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small"); }
+                      try { results[i + j] = p.source === "jnt_uat" ? await jtApi.fetchLabelBytes(p) : await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small"); }
                       catch { fails.push(p.flash_pno); results[i + j] = null; }
                       setLabelProgress({ done: ++done, total: list.length });
                     }));
@@ -5198,7 +5326,7 @@ export default function FlashBackend() {
             <button onClick={async () => {
               const toPrint = printPreview.filter(p => p._print !== false);
               if (!toPrint.length) { uiAlert("เลือกอย่างน้อย 1 รายการ"); return; }
-              await openPrintPage(toPrint);
+              if (await openPrintPage(toPrint) === false) return;
               await markPrintedBulk(toPrint);
               setSelectedIds(new Set());
               setPrintPreview(null);
