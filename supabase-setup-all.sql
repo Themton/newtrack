@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS fx_shops (
 );
 
 ALTER TABLE fx_shops ADD COLUMN IF NOT EXISTS flash_mch_id TEXT DEFAULT 'CBC9351';
+ALTER TABLE fx_shops ADD COLUMN IF NOT EXISTS carrier TEXT NOT NULL DEFAULT 'flash' CHECK (carrier IN ('flash', 'jnt'));
 
 DROP TRIGGER IF EXISTS fx_shops_updated ON fx_shops;
 CREATE TRIGGER fx_shops_updated

@@ -1210,6 +1210,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
 // SHOP MANAGEMENT MODAL
 // ═══════════════════════════════════════════════════════════════
 function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
+  const [shopCarrier, setShopCarrier] = useState("flash");
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -1224,15 +1225,16 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
   }, [isDemo]);
   useEffect(() => { load(); }, [load]);
 
-  const openAdd = () => { setEditId(null); setForm({ name: "", phone: "", address: "", province: "", postal: "", flash_mch_id: FLASH_ACCOUNTS[0]?.mchId || "" }); setShowForm(true); };
-  const openEdit = (s) => { setEditId(s.id); setForm({ name: s.name || "", phone: s.phone || "", address: s.address || "", province: s.province || "", postal: s.postal || "", flash_mch_id: s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId || "" }); setShowForm(true); };
+  const openAdd = () => { setShopCarrier("flash"); setEditId(null); setForm({ name: "", phone: "", address: "", province: "", postal: "", flash_mch_id: FLASH_ACCOUNTS[0]?.mchId || "" }); setShowForm(true); };
+  const openEdit = (s) => { setShopCarrier(s.carrier === "jnt" ? "jnt" : "flash"); setEditId(s.id); setForm({ name: s.name || "", phone: s.phone || "", address: s.address || "", province: s.province || "", postal: s.postal || "", flash_mch_id: s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId || "" }); setShowForm(true); };
 
   const handleSave = async () => {
     if (!form.name || !form.phone) { uiAlert("กรุณากรอกชื่อร้าน + เบอร์โทร"); return; }
     setSaving(true);
     try {
-      if (editId) { await sb.update("fx_shops", editId, form); }
-      else { await sb.insert("fx_shops", { ...form, is_active: true, is_default: shops.length === 0 }); }
+      const payload = { ...form, carrier: shopCarrier };
+      if (editId) { await sb.update("fx_shops", editId, payload); }
+      else { await sb.insert("fx_shops", { ...payload, is_active: true, is_default: shops.length === 0 }); }
       setShowForm(false); load(); onUpdate?.();
     } catch (e) { uiAlert(e.message); }
     setSaving(false);
@@ -1266,7 +1268,8 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
           <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>ที่อยู่</label><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="บ้านเลขที่ ถนน ซอย ตำบล อำเภอ จังหวัด รหัสไปรษณีย์" style={I} /></div>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>จังหวัด</label><select value={form.province} onChange={e => setForm(f => ({ ...f, province: e.target.value }))} style={{ ...I, background: "#fff" }}><option value="">--</option>{PROVINCES.map(p => <option key={p}>{p}</option>)}</select></div>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>รหัสไปรษณีย์</label><input value={form.postal} onChange={e => setForm(f => ({ ...f, postal: e.target.value }))} placeholder="XXXXX" style={I} /></div>
-          <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>⚡ บัญชี Flash Express</label><select value={form.flash_mch_id} onChange={e => setForm(f => ({ ...f, flash_mch_id: e.target.value }))} style={{ ...I, background: "#fff", borderColor: "#fbbf24" }}>{FLASH_ACCOUNTS.map(a => <option key={a.mchId} value={a.mchId}>{a.name} ({a.mchId})</option>)}</select></div>
+          <div style={{ gridColumn: "span 2" }}><label htmlFor="shop-carrier" style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>ขนส่งประจำร้าน</label><select id="shop-carrier" value={shopCarrier} onChange={e => setShopCarrier(e.target.value)} style={{ ...I, background: "#fff" }}>{CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+          {shopCarrier === "flash" && <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>⚡ บัญชี Flash Express</label><select value={form.flash_mch_id} onChange={e => setForm(f => ({ ...f, flash_mch_id: e.target.value }))} style={{ ...I, background: "#fff", borderColor: "#fbbf24" }}>{FLASH_ACCOUNTS.map(a => <option key={a.mchId} value={a.mchId}>{a.name} ({a.mchId})</option>)}</select></div>}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <button onClick={handleSave} disabled={saving} style={{ padding: "10px 20px", background: "#059669", color: "#fff", border: "none", borderRadius: 10, fontWeight: 600, cursor: "pointer" }}>{saving ? "..." : editId ? "💾 บันทึก" : "✅ เพิ่มร้าน"}</button>
@@ -1282,7 +1285,7 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
           <div>
             <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name} {s.is_default && <span style={{ fontSize: 10, background: "#ecfdf5", color: "#059669", padding: "2px 8px", borderRadius: 10, fontWeight: 600, marginLeft: 6 }}>ค่าเริ่มต้น</span>}</div>
             <div style={{ fontSize: 12, color: "#64748b" }}>{s.phone} · {s.address} {s.province} {s.postal}</div>
-            <div style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>⚡ {s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId}</div>
+            <div style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>{s.carrier === "jnt" ? "J&T EXPRESS" : `⚡ Flash Express · ${s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId}`}</div>
           </div>
           <div style={{ display: "flex", gap: 4 }}>
             <button title="แก้ไข" onClick={() => openEdit(s)} style={{ width: 30, height: 30, border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
@@ -1859,7 +1862,12 @@ export default function FlashBackend() {
   const [carrierRequest, setCarrierRequest] = useState(null);
   const [selectedCarrier, setSelectedCarrier] = useState("flash");
   const [jntAccess, setJntAccess] = useState("");
-  const openCarrierPicker = (parcel = null) => { setSelectedCarrier("flash"); setCarrierRequest({ parcel }); };
+  const openCarrierPicker = (parcel = null) => {
+    const targets = parcel ? [parcel] : parcels.filter(p => selectedIds.has(p.id));
+    const carriers = new Set(targets.map(p => shops.find(s => s.id === p.shop_id)?.carrier || "flash"));
+    setSelectedCarrier(carriers.size === 1 ? [...carriers][0] : "flash");
+    setCarrierRequest({ parcel });
+  };
   const [cancelProgress, setCancelProgress] = useState(null);
   const batchCreateFlash = async (carrier = "flash") => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && !p.flash_pno && p.receiver_name && p.receiver_phone);
