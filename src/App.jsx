@@ -45,7 +45,7 @@ const jtApi = {
   accessToken: "",
   labelType: 1,
   headers() {
-    if (!this.accessToken) throw new Error("กรุณากรอกรหัสเข้าใช้งาน J&T UAT ที่แถบตั้งค่าก่อน");
+    if (!this.accessToken) throw new Error("กรุณากรอกรหัสเข้าใช้งาน J&T ตอนเลือกขนส่ง");
     return { "Content-Type": "application/json", Authorization: "Bearer " + this.accessToken };
   },
   async createOrder(parcel, options = {}) {
@@ -1750,22 +1750,25 @@ export default function FlashBackend() {
     return flashApi.getAccount(mchId);
   };
 
+  const saveJtOrder = async (p) => {
+    const pendingKey = "jnt-pending-" + p.id;
+    const pending = localStorage.getItem(pendingKey);
+    const result = pending ? JSON.parse(pending) : await jtApi.createOrder(p);
+    if (!result.data?.billCode) throw new Error("J&T ไม่ส่งเลขพัสดุกลับมา");
+    localStorage.setItem(pendingKey, JSON.stringify(result));
+    const updates = { source: "jnt_uat", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: result.data, status: "created" };
+    await sb.update("fx_parcels", p.id, updates);
+    localStorage.removeItem(pendingKey);
+    setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
+    return result;
+  };
   const createJtOrder = async (p) => {
     if (p.flash_pno || isDemo) { uiAlert("ใช้รายการจริงที่ยังไม่มีเลขพัสดุสำหรับทดสอบ J&T"); return; }
-    if (!await uiConfirm(`สร้างออเดอร์ J&T UAT สำหรับ ${p.receiver_name}?\nเลขที่ได้ใช้ทดสอบเท่านั้น ไม่ใช่ใบส่งของจริง`)) return;
     setFlashLoading(p.id);
     try {
-      const pendingKey = "jnt-pending-" + p.id;
-      const pending = localStorage.getItem(pendingKey);
-      const result = pending ? JSON.parse(pending) : await jtApi.createOrder(p);
-      if (!result.data?.billCode) throw new Error("J&T ไม่ส่งเลขพัสดุกลับมา");
-      localStorage.setItem(pendingKey, JSON.stringify(result));
-      const updates = { source: "jnt_uat", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: result.data, status: "created" };
-      await sb.update("fx_parcels", p.id, updates);
-      localStorage.removeItem(pendingKey);
-      setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
+      const result = await saveJtOrder(p);
       await sb.broadcastChange();
-      showToast(`J&T UAT: ${result.data.billCode}`);
+      showToast(`สร้างเลข J&T สำเร็จ: ${result.data.billCode}`);
     } catch (e) { uiAlert(e.message); }
     finally { setFlashLoading(null); }
   };
@@ -1846,11 +1849,16 @@ export default function FlashBackend() {
 
   // Batch สร้างเลข Tracking
   const [batchProgress, setBatchProgress] = useState(null);
+  const [carrierRequest, setCarrierRequest] = useState(null);
+  const [selectedCarrier, setSelectedCarrier] = useState("flash");
+  const [jntAccess, setJntAccess] = useState("");
+  const openCarrierPicker = (parcel = null) => { setSelectedCarrier("flash"); setCarrierRequest({ parcel }); };
   const [cancelProgress, setCancelProgress] = useState(null);
-  const batchCreateFlash = async () => {
+  const batchCreateFlash = async (carrier = "flash") => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && !p.flash_pno && p.receiver_name && p.receiver_phone);
     if (!targets.length) { uiAlert("ไม่มีรายการที่เลือก (ต้องยังไม่มีเลข Tracking + มีข้อมูลผู้รับ)"); return; }
-    if (!await uiConfirm(`สร้างเลข Tracking Flash Express ${targets.length} รายการ?`)) return;
+    if (carrier === "jnt" && isDemo) { uiAlert("โหมดตัวอย่างไม่สามารถสร้างเลข J&T ได้"); return; }
+    if (!await uiConfirm(`สร้างเลข Tracking ${carrier === "jnt" ? "J&T Express" : "Flash Express"} ${targets.length} รายการ?`)) return;
     setBatchProgress({ total: targets.length, done: 0, success: 0, errors: [] });
     let success = 0; const errors = [];
     for (let i = 0; i < targets.length; i++) {
@@ -1858,6 +1866,7 @@ export default function FlashBackend() {
       setGlobalLoading({ msg: `กำลังสร้างเลข Tracking ${i + 1}/${targets.length}`, progress: pct });
       const p = targets[i];
       try {
+        if (carrier === "jnt") { await saveJtOrder(p); success++; continue; }
         const result = await flashApi.createOrder(p, getFlashAccount(p));
         console.log(`Flash batch [${i+1}/${targets.length}] ${p.receiver_name}:`, JSON.stringify(result));
         if (result.code === 1 && result.data) {
@@ -4925,14 +4934,30 @@ export default function FlashBackend() {
         <div style={{ padding: activePage === "parcels" ? "0" : "24px" }}>
           {/* ═══ PARCELS PAGE ═══ */}
           {activePage === "parcels" && (<>
-            {(perm.status || perm.print) && <div style={{ padding: "12px 24px", background: "#fff1f2", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <label htmlFor="jnt-access">J&T UAT — รหัสเข้าใช้งาน</label>
-              <input id="jnt-access" type="password" autoComplete="off" onChange={e => { jtApi.accessToken = e.target.value; }} placeholder="รหัสสำหรับทดสอบ J&T" style={{ padding: 8, fontSize: 14 }} />
-              <span>เลขทดสอบ ใช้ส่งพัสดุจริงไม่ได้</span>
-              <label htmlFor="jnt-size">ขนาดใบปะหน้า</label>
-              <select id="jnt-size" defaultValue="1" onChange={e => { jtApi.labelType = Number(e.target.value); }}>
-                <option value="1">150 × 100 mm</option><option value="2">100 × 75 mm</option><option value="3">100 × 80 mm</option><option value="4">100 × 100 mm</option><option value="5">76 × 100 mm</option>
-              </select>
+            {carrierRequest && <div style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div role="dialog" aria-modal="true" aria-labelledby="carrier-title" style={{ background: "#fff", padding: 24, borderRadius: 16, width: "90%", maxWidth: 420 }}>
+                <h3 id="carrier-title" style={{ marginTop: 0 }}>สร้างเลขพัสดุ</h3>
+                <label htmlFor="create-carrier">เลือกขนส่ง</label>
+                <select id="create-carrier" value={selectedCarrier} onChange={e => setSelectedCarrier(e.target.value)} style={{ display: "block", width: "100%", padding: 10, margin: "8px 0 16px" }}>
+                  <option value="flash">Flash Express</option><option value="jnt">J&T Express</option>
+                </select>
+                {selectedCarrier === "jnt" && <>
+                  <label htmlFor="jnt-access">รหัสเข้าใช้งาน J&T</label>
+                  <input id="jnt-access" type="password" autoComplete="off" value={jntAccess} onChange={e => setJntAccess(e.target.value)} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: 10, marginTop: 8 }} />
+                  <p style={{ fontSize: 12, color: "#64748b" }}>บัญชี J&T ปัจจุบันเป็นระบบทดสอบ ยังใช้ส่งพัสดุจริงไม่ได้</p>
+                </>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button onClick={() => { setCarrierRequest(null); setJntAccess(""); }}>ยกเลิก</button>
+                  <button disabled={selectedCarrier === "jnt" && !jntAccess.trim()} onClick={async () => {
+                    const request = carrierRequest;
+                    if (selectedCarrier === "jnt") jtApi.accessToken = jntAccess.trim();
+                    setCarrierRequest(null); setJntAccess("");
+                    if (!request.parcel) await batchCreateFlash(selectedCarrier);
+                    else if (selectedCarrier === "jnt") await createJtOrder(request.parcel);
+                    else await createFlashOrder(request.parcel);
+                  }} style={{ padding: "8px 16px", background: "#4f46e5", color: "#fff", border: "none", borderRadius: 6 }}>สร้างเลขพัสดุ</button>
+                </div>
+              </div>
             </div>}
             {/* STATUS TABS */}
             <div style={{ borderBottom: "2px solid #e2e8f0", overflowX: "auto", display: "flex" }}>
@@ -5077,7 +5102,7 @@ export default function FlashBackend() {
                 {selectedIds.size > 0 && perm.status && (
                   <div style={{ padding: "10px 16px", background: "linear-gradient(135deg,#eef2ff,#faf5ff)", borderBottom: "1px solid #c7d2fe", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>✓ เลือก {selectedIds.size} รายการ</span>
-                    <button onClick={batchCreateFlash} disabled={!!batchProgress} style={{ padding: "7px 16px", background: "#f59e0b", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>⚡ สร้างเลข Tracking ({selectedCounts.noTracking})</button>
+                    <button onClick={() => openCarrierPicker()} disabled={!!batchProgress} style={{ padding: "7px 16px", background: "#f59e0b", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>⚡ สร้างเลข Tracking ({selectedCounts.noTracking})</button>
                     <button onClick={batchPrint} style={{ padding: "7px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🖨️ ปริ้น ({selectedCounts.hasTracking})</button>
                     <button onClick={batchMarkPrinted} style={{ padding: "7px 16px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🖨️ เปลี่ยนเป็นปริ้นแล้ว ({selectedCounts.canMarkPrinted})</button>
                     {perm.edit && <button onClick={() => { setAssignName(""); setAssignModal(true); }} style={{ padding: "7px 16px", background: "#0ea5e9", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>👤 โยกให้พนักงาน</button>}
@@ -5127,13 +5152,12 @@ export default function FlashBackend() {
                             {p.status === "printed" ? <>
                               <span title="รับเข้าระบบแล้ว — ดูได้อย่างเดียว" style={{ width: 26, height: 26, border: "1px solid #059669", borderRadius: 4, background: "#ecfdf5", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>🔒</span>
                             </> : <>
-                              {perm.status && !p.flash_pno && <button title="สร้างเลข" onClick={() => createFlashOrder(p)} disabled={flashLoading === p.id} style={{ width: 26, height: 26, border: "1px solid #fbbf24", borderRadius: 4, background: flashLoading === p.id ? "#fef3c7" : "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>{flashLoading === p.id ? "⏳" : "⚡"}</button>}
+                              {perm.status && !p.flash_pno && <button title="สร้างเลข" onClick={() => openCarrierPicker(p)} disabled={flashLoading === p.id} style={{ width: 26, height: 26, border: "1px solid #fbbf24", borderRadius: 4, background: flashLoading === p.id ? "#fef3c7" : "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>{flashLoading === p.id ? "⏳" : "⚡"}</button>}
                               {perm.cancelFlash && p.flash_pno && p.status !== "cancelled" && <button title="ยกเลิกเลขพัสดุ" onClick={() => cancelFlashOrder(p)} disabled={flashLoading === p.id} style={{ width: 26, height: 26, border: "1px solid #dc2626", borderRadius: 4, background: flashLoading === p.id ? "#fef2f2" : "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>{flashLoading === p.id ? "⏳" : "❌"}</button>}
                               {perm.status && p.flash_pno && p.status === "created" && <button title="เปลี่ยนเป็นปริ้นแล้ว" onClick={() => markPrinted(p)} style={{ width: 26, height: 26, border: "1px solid #6366f1", borderRadius: 4, background: "#eef2ff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>🖨️</button>}
                               {perm.edit && !p.flash_pno && <button title="แก้ไข" onClick={() => { setEditParcel(p); setShowForm(true); }} style={{ width: 26, height: 26, border: "1px solid #e2e8f0", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>}
                               {perm.delete && p.status !== "cancelled" && <button title="ลบ" onClick={() => handleDelete(p)} style={{ width: 26, height: 26, border: "1px solid #fca5a5", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>🗑️</button>}
                             </>}
-                            {perm.status && !p.flash_pno && <button onClick={() => createJtOrder(p)} disabled={flashLoading === p.id} title="สร้างเลข J&T UAT" style={{ cursor: "pointer", border: "1px solid #dc2626", background: "#fff", color: "#dc2626", borderRadius: 4 }}>J&T UAT</button>}
                             {perm.print && p.source === "jnt_uat" && p.flash_pno && p.status !== "cancelled" && <button onClick={() => jtApi.fetchLabel(p).catch(e => uiAlert(e.message))} style={{ cursor: "pointer" }}>ใบปะหน้า J&T</button>}
                             <button title="ดูรายละเอียด" onClick={() => setViewParcel(p)} style={{ width: 26, height: 26, border: "1px solid #e2e8f0", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>👁️</button>
                           </div></td>
