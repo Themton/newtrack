@@ -39,6 +39,11 @@ const FLASH_ACCOUNTS = [
   { name: "CBF1654", mchId: "CBF1654" },
 ];
 const WORKER_URL = "https://newtrack-proxy.themtja.workers.dev";
+const CARRIERS = [
+  { value: "flash", label: "Flash Express" },
+  { value: "jnt", label: "J&T EXPRESS" },
+];
+const parcelCarrier = p => p.source === "jnt_uat" ? "jnt" : p.flash_pno ? "flash" : "";
 
 // J&T Open Platform — credentials stay in the Worker, never in the browser.
 const jtApi = {
@@ -1407,6 +1412,7 @@ export default function FlashBackend() {
   }, [user, activePage]);
   const [selectedShopFilter, setSelectedShopFilter] = useState("");
   const [codFilter, setCodFilter] = useState("");
+  const [carrierFilter, setCarrierFilter] = useState("");
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [notifSelected, setNotifSelected] = useState(new Set());
   const [upsellShop, setUpsellShop] = useState(""); // ตัวกรองร้านค้าในตาราง
@@ -1648,13 +1654,14 @@ export default function FlashBackend() {
   const filtered = useMemo(() => {
     let list = parcels;
     if (selectedShopFilter) list = list.filter(p => p.shop_id === selectedShopFilter);
+    if (carrierFilter) list = list.filter(p => parcelCarrier(p) === carrierFilter);
     if (statusFilter !== "ALL") list = list.filter(p => p.status === statusFilter);
     if (codFilter === "cod") list = list.filter(p => Number(p.cod_amount) > 0);
     else if (codFilter === "nocod") list = list.filter(p => !Number(p.cod_amount));
     else if (codFilter) list = list.filter(p => Number(p.cod_amount) === Number(codFilter));
     if (search) { const q = search.toLowerCase(); list = list.filter(p => [p.parcel_no, p.receiver_name, p.receiver_phone, p.flash_pno, p.flash_sort_code, p.receiver_province, p.receiver_address, p.remark, p.created_by_name].some(v => (v || "").toLowerCase().includes(q))); }
     return list;
-  }, [parcels, search, selectedShopFilter, statusFilter, codFilter]);
+  }, [parcels, search, selectedShopFilter, statusFilter, codFilter, carrierFilter]);
 
   const paged = filtered.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
@@ -4915,6 +4922,10 @@ export default function FlashBackend() {
               <button onClick={() => shiftMonth(1)} title="เดือนถัดไป" style={{ padding: "6px 9px", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#64748b", lineHeight: 1 }}>›</button>
             </div>
             {/* กลาง: กรอง + ปริ้น */}
+            <select aria-label="กรองขนส่ง" value={carrierFilter} onChange={e => { setCarrierFilter(e.target.value); setPage(0); }} style={{ padding: "9px 10px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 12 }}>
+              <option value="">ทุกขนส่ง</option>
+              {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
             {shops?.length > 0 && <select value={selectedShopFilter} onChange={e => { setSelectedShopFilter(e.target.value); setPage(0); }} style={{ padding: "9px 10px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 12, fontFamily: "inherit", fontWeight: 600, color: selectedShopFilter ? "#dc2626" : "#64748b" }}>
               <option value="">🏪 ทุกร้าน</option>
               {shops.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -4939,7 +4950,7 @@ export default function FlashBackend() {
                 <h3 id="carrier-title" style={{ marginTop: 0 }}>สร้างเลขพัสดุ</h3>
                 <label htmlFor="create-carrier">เลือกขนส่ง</label>
                 <select id="create-carrier" value={selectedCarrier} onChange={e => setSelectedCarrier(e.target.value)} style={{ display: "block", width: "100%", padding: 10, margin: "8px 0 16px" }}>
-                  <option value="flash">Flash Express</option><option value="jnt">J&T Express</option>
+                  {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
                 {selectedCarrier === "jnt" && <>
                   <label htmlFor="jnt-access">รหัสเข้าใช้งาน J&T</label>
@@ -5262,7 +5273,7 @@ export default function FlashBackend() {
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button disabled={!!labelProgress} onClick={async () => {
                 const list = printPreview.filter(p => p._print !== false && p.flash_pno);
-                if (!list.length) { uiAlert("ไม่มีพัสดุที่มีเลข Flash ให้ปริ้น"); return; }
+                if (!list.length) { uiAlert("ไม่มีพัสดุที่มีเลข Tracking ให้ปริ้น"); return; }
                 setLabelProgress({ done: 0, total: list.length });
                 try {
                   const { PDFDocument } = await import("pdf-lib");
@@ -5295,7 +5306,7 @@ export default function FlashBackend() {
                   if (fails.length) uiAlert("โหลดสำเร็จ " + merged.getPageCount() + " ใบ\nไม่สำเร็จ " + fails.length + " ใบ: " + fails.slice(0, 10).join(", "));
                 } catch (e) { uiAlert("เกิดข้อผิดพลาด: " + e.message); }
                 setLabelProgress(null);
-              }} style={{ padding: "7px 12px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: labelProgress ? "wait" : "pointer", opacity: labelProgress ? 0.6 : 1 }}>🏷️ {labelProgress ? `โหลด ${labelProgress.done}/${labelProgress.total}` : "ใบ Flash (รวมไฟล์เดียว)"}</button>
+              }} style={{ padding: "7px 12px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: labelProgress ? "wait" : "pointer", opacity: labelProgress ? 0.6 : 1 }}>🏷️ {labelProgress ? `โหลด ${labelProgress.done}/${labelProgress.total}` : "ใบปะหน้าขนส่ง (รวมไฟล์เดียว)"}</button>
               <button onClick={async () => {
                 const p = printPreview.find(x => x._print !== false) || printPreview[0];
                 if (!p) return;
