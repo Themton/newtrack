@@ -1975,29 +1975,82 @@ export default function FlashBackend() {
     } catch { return targets; }
   };
 
-  const openPrintPage = async (rawTargets) => {
-    if (rawTargets.some(isJtParcel)) {
+  const openPrintPage = async (rawTargets, { customLayout = false, forceOfficial = false } = {}) => {
+    if (rawTargets.some(isJtParcel) && !customLayout && !forceOfficial) return openPrintPage(rawTargets, { customLayout: true });
+    if (rawTargets.some(isJtParcel) && forceOfficial) {
+      // Open on the click itself so the browser does not block the preview after the API requests.
+      const preview = window.open("", "_blank");
+      if (!preview) { uiAlert("เบราว์เซอร์บล็อกป๊อปอัพ — กรุณาอนุญาต popup สำหรับเว็บนี้"); return false; }
+      preview.document.write("<!doctype html><html lang='th'><meta charset='utf-8'><title>ใบปะหน้า J&T</title><body style='font-family:sans-serif;padding:24px'>กำลังเตรียมใบปะหน้า J&T…</body></html>");
       try {
         const { PDFDocument } = await import("pdf-lib");
-        const merged = await PDFDocument.create();
-        for (const p of rawTargets) {
+        const labels = [];
+        for (const [index, p] of rawTargets.entries()) {
           const bytes = isJtParcel(p) ? await jtApi.fetchLabelBytes(withJtAccount(p)) : await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small");
-          const doc = await PDFDocument.load(bytes);
-          const pages = await merged.copyPages(doc, doc.getPageIndices());
-          pages.forEach(page => merged.addPage(page));
+          labels.push({ index, number: p.flash_pno || p.parcel_no || `ใบที่ ${index + 1}`, doc: await PDFDocument.load(bytes), url: URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })) });
         }
-        const url = URL.createObjectURL(new Blob([await merged.save()], { type: "application/pdf" }));
-        const tab = window.open(url, "_blank");
-        if (!tab) { const a = document.createElement("a"); a.href = url; a.download = "shipping-labels.pdf"; a.click(); }
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        const doc = preview.document;
+        doc.open();
+        doc.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบปะหน้า J&T (${labels.length} ใบ)</title><style>
+          *{box-sizing:border-box}body{margin:0;background:#eee;font-family:Sarabun,Tahoma,sans-serif;color:#172033}
+          header{position:sticky;top:0;background:#263445;color:white;padding:14px;z-index:2;text-align:center}
+          button{border:0;border-radius:8px;padding:9px 16px;margin:3px;cursor:pointer;font-weight:700}
+          .print{background:#dc2626;color:white}.download{background:#059669;color:white}.select{background:#e2e8f0}
+          main{max-width:900px;margin:16px auto;padding:0 12px}.card{background:white;margin:12px 0;padding:12px;border-radius:10px;box-shadow:0 1px 6px #0002}
+          .card label{display:block;font-weight:700;margin-bottom:8px}.card iframe{display:block;width:100%;height:430px;border:1px solid #ddd}
+          small{display:block;color:#facc15;margin-top:5px}
+        </style></head><body><header><div style="font-size:18px;font-weight:800">🖨️ ใบปะหน้า J&T EXPRESS</div>
+          <button class="print" id="printLabels">🖨️ เปิด PDF เพื่อพิมพ์ที่เลือก</button>
+          <button class="download" id="downloadLabels">📥 ดาวน์โหลด PDF ที่เลือก</button>
+          <button class="select" id="customLabels">📋 ใบแบบ Flash (ข้อมูล J&T)</button>
+          <button class="select" id="selectAll">☑ เลือกทั้งหมด</button><button class="select" id="clearAll">☐ ยกเลิกทั้งหมด</button>
+          <span id="count"></span><small>ใช้ PDF ใบปะหน้าทางการจากขนส่ง J&T ไม่สร้างรหัสคัดแยกขึ้นเอง</small></header><main id="labels"></main></body></html>`);
+        doc.close();
+        const root = doc.getElementById("labels");
+        for (const label of labels) {
+          const card = doc.createElement("section"); card.className = "card";
+          const heading = doc.createElement("label");
+          const check = doc.createElement("input"); check.type = "checkbox"; check.checked = true; check.dataset.index = String(label.index);
+          check.addEventListener("change", updateCount);
+          heading.append(check, doc.createTextNode(` ${label.index + 1}. ${label.number}`));
+          const frame = doc.createElement("iframe"); frame.src = label.url; frame.title = `ใบปะหน้า ${label.number}`;
+          card.append(heading, frame); root.append(card);
+        }
+        function selectedLabels() { return labels.filter(label => doc.querySelector(`input[data-index="${label.index}"]`)?.checked); }
+        function updateCount() { doc.getElementById("count").textContent = `เลือก ${selectedLabels().length}/${labels.length} ใบ`; }
+        updateCount();
+        doc.getElementById("selectAll").onclick = () => { doc.querySelectorAll('input[type="checkbox"]').forEach(box => { box.checked = true; }); updateCount(); };
+        doc.getElementById("clearAll").onclick = () => { doc.querySelectorAll('input[type="checkbox"]').forEach(box => { box.checked = false; }); updateCount(); };
+        const buildSelectedPdf = async () => {
+          const selected = selectedLabels();
+          if (!selected.length) { preview.alert("กรุณาเลือกใบปะหน้าอย่างน้อยหนึ่งใบ"); return null; }
+          const merged = await PDFDocument.create();
+          for (const label of selected) {
+            const pages = await merged.copyPages(label.doc, label.doc.getPageIndices());
+            pages.forEach(page => merged.addPage(page));
+          }
+          return URL.createObjectURL(new Blob([await merged.save()], { type: "application/pdf" }));
+        };
+        doc.getElementById("printLabels").onclick = async () => {
+          const printWindow = preview.open("", "_blank");
+          try { const url = await buildSelectedPdf(); if (url && printWindow) { printWindow.location.href = url; setTimeout(() => URL.revokeObjectURL(url), 300000); } else if (printWindow) printWindow.close(); }
+          catch (error) { if (printWindow) printWindow.close(); preview.alert("เตรียม PDF ไม่สำเร็จ: " + error.message); }
+        };
+        doc.getElementById("downloadLabels").onclick = async () => {
+          try { const url = await buildSelectedPdf(); if (!url) return; const link = doc.createElement("a"); link.href = url; link.download = "jnt-labels.pdf"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
+          catch (error) { preview.alert("ดาวน์โหลด PDF ไม่สำเร็จ: " + error.message); }
+        };
+        doc.getElementById("customLabels").onclick = () => openPrintPage(rawTargets, { customLayout: true });
+        preview.addEventListener("pagehide", () => labels.forEach(label => URL.revokeObjectURL(label.url)), { once: true });
         return true;
-      } catch (e) { uiAlert("ขอใบปะหน้าไม่สำเร็จ: " + e.message); return false; }
+      } catch (e) { preview.close(); uiAlert("ขอใบปะหน้าไม่สำเร็จ: " + e.message); return false; }
     }
     // ต้องเปิดหน้าต่างทันที (ก่อน await) ไม่งั้น popup blocker จะบล็อก เพราะ user gesture หลุด
     const preWin = window.open("", "_blank");
     if (preWin) preWin.document.write("<p style='font-family:sans-serif;padding:24px'>กำลังเตรียมใบปะหน้า…</p>");
-    const targets = await hydrateApiResponse(rawTargets);
+    const targets = await hydrateApiResponse(rawTargets.filter(p => !isJtParcel(p))).then(flash => rawTargets.map(p => flash.find(row => row.id === p.id) || p));
     const maskPhone = (ph) => (ph || "").replace(/^(\d{3})\d{4}(\d{3})$/, "$1****$2");
+    const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
     const now = new Date().toLocaleString("en-GB", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const total = targets.length;
     const lblData = targets.map((p, i) => {
@@ -2005,7 +2058,8 @@ export default function FlashBackend() {
       if (typeof fr === "string") { try { fr = JSON.parse(fr); } catch { fr = {}; } }
       return {
         i,
-        sc: p.flash_sort_code || fr.sortCode || "",
+        carrier: isJtParcel(p) ? "J&T EXPRESS" : "FLASH EXPRESS",
+        sc: isJtParcel(p) ? "" : p.flash_sort_code || fr.sortCode || "",
         zone: fr.sortingLineCode || fr.lineCode || "",
         dst2: fr.dstStoreName || "",
         pno: p.flash_pno || "",
@@ -2024,11 +2078,11 @@ export default function FlashBackend() {
         raddr2: `${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}`,
         raddr3: `${p.receiver_province || ""} ${p.receiver_postal || ""}`.trim(),
         cod: (p.cod_enabled && Number(p.cod_amount) > 0) ? Number(p.cod_amount) : 0,
-        item: p.remark || "",
+        item: p.item_desc || p.remark || "",
       };
     });
 
-    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ใบปะหน้า Flash Express (${total} ใบ)</title>`;
+    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ใบปะหน้า (${total} ใบ)</title>`;
     html += `<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800;900&family=Noto+Sans+Thai:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>`;
     html += `<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>`;
     html += `<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>`;
@@ -2068,9 +2122,10 @@ export default function FlashBackend() {
     html += `<div class="no-print toolbar"><div class="toolbar-top">`;
     html += `<button class="btn-print" onclick="printSelected()">🖨️ ปริ้นที่เลือก</button>`;
     html += `<button class="btn-dl" onclick="downloadOurLabels()">📥 ดาวน์โหลด PDF (ใบของเรา)</button>`;
+    if (targets.some(isJtParcel)) html += `<button class="btn-official" id="officialJtLabels" style="background:#fff;color:#1e293b">📄 ใบปะหน้า J&T ทางการ</button>`;
     html += `<span style="font-size:12px">ทั้งหมด ${total} ใบ</span>`;
     html += `</div>`;
-    html += `<div class="no-print" style="text-align:center;font-size:11px;color:#fbbf24;margin-bottom:8px;line-height:1.4">📥 <b>"ดาวน์โหลด PDF (ใบของเรา)"</b> = ดาวน์โหลดไฟล์ใบปะหน้าดีไซน์ของระบบ รวมไฟล์เดียว เร็วทันที &nbsp;·&nbsp; 🖨️ <b>"ปริ้นที่เลือก"</b> = ปริ้นจากเบราว์เซอร์</div>`;
+    html += `<div class="no-print" style="text-align:center;font-size:11px;color:#fbbf24;margin-bottom:8px;line-height:1.4">📥 <b>"ดาวน์โหลด PDF (ใบของเรา)"</b> = ใบดีไซน์ของระบบ &nbsp;·&nbsp; 🖨️ <b>"ปริ้นที่เลือก"</b> = ปริ้นจากเบราว์เซอร์${targets.some(isJtParcel) ? "<br>⚠️ ใบ J&T แบบนี้ไม่มีรหัสคัดแยกทางการ โปรดใช้ใบ PDF ทางการของ J&T เมื่อต้องส่งกับขนส่ง" : ""}</div>`;
     html += `<div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap">`;
     html += `<button onclick="toggleAll(true)" style="padding:4px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;background:transparent;color:#10b981;font-size:11px;font-weight:700;cursor:pointer">☑ เลือกทั้งหมด</button>`;
     html += `<button onclick="toggleAll(false)" style="padding:4px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;background:transparent;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer">☐ ยกเลิกทั้งหมด</button>`;
@@ -2083,20 +2138,20 @@ export default function FlashBackend() {
 
     // Labels
     targets.forEach((p, idx) => {
-      const sc = p.flash_sort_code || "";
-      const pno = p.flash_pno || "";
+      const sc = escapeHtml(p.flash_sort_code || "");
+      const pno = escapeHtml(p.flash_pno || "");
       const codVal = Number(p.cod_amount || 0);
       html += `<div class="label" id="lbl${idx}">`;
       html += `<div class="label-num no-print">${idx + 1}</div>`;
-      html += `<div class="sort-code">${sc || "FLASH EXPRESS"}</div>`;
+      html += `<div class="sort-code">${isJtParcel(p) ? "J&T EXPRESS" : sc || "FLASH EXPRESS"}</div>`;
       html += `<div class="bc-wrap"><svg id="bc${idx}"></svg></div>`;
       html += `<div class="pno-row">${pno}</div>`;
-      html += `<div class="dst-bar">DST &nbsp; ${p.receiver_district || ""} — ${p.receiver_province || ""}</div>`;
+      html += `<div class="dst-bar">DST &nbsp; ${escapeHtml(p.receiver_district)} — ${escapeHtml(p.receiver_province)}</div>`;
       html += `<div class="body-area">`;
-      html += `<div class="src-line">ผู้ส่ง ${p.sender_name} ${p.sender_phone} ${p.sender_address || ""}</div>`;
-      html += `<div class="dst-name">ผู้รับ ${p.receiver_name}</div>`;
-      html += `<div class="dst-phone">${maskPhone(p.receiver_phone)}</div>`;
-      html += `<div class="dst-addr">${p.receiver_address || ""}<br>${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}<br>${p.receiver_province || ""} ${p.receiver_postal || ""}</div>`;
+      html += `<div class="src-line">ผู้ส่ง ${escapeHtml(p.sender_name)} ${escapeHtml(p.sender_phone)} ${escapeHtml(p.sender_address)}</div>`;
+      html += `<div class="dst-name">ผู้รับ ${escapeHtml(p.receiver_name)}</div>`;
+      html += `<div class="dst-phone">${escapeHtml(maskPhone(p.receiver_phone))}</div>`;
+      html += `<div class="dst-addr">${escapeHtml(p.receiver_address)}<br>${escapeHtml(p.receiver_subdistrict)}${p.receiver_subdistrict ? ", " : ""}${escapeHtml(p.receiver_district)}<br>${escapeHtml(p.receiver_province)} ${escapeHtml(p.receiver_postal)}</div>`;
       html += `<div class="qr-box"><canvas id="qr${idx}" width="170" height="170"></canvas></div>`;
       html += `</div>`;
       html += `<div class="cod-row">`;
@@ -2106,19 +2161,19 @@ export default function FlashBackend() {
         html += `<div class="cod-val" style="font-size:10px;color:#666">—</div>`;
       }
       html += `</div>`;
-      html += `<div class="dst-item" style="font-size:15px;color:#000;font-weight:800;padding:2px 8px;line-height:1.2">📦 สินค้า: ${p.remark || "-"}</div>`;
+      html += `<div class="dst-item" style="font-size:15px;color:#000;font-weight:800;padding:2px 8px;line-height:1.2">📦 สินค้า: ${escapeHtml(p.item_desc || p.remark || "-")}</div>`;
       html += `<div class="foot"><span>Print-: ${now}</span><span>${idx + 1}/${total}</span><span>THE MT</span></div>`;
       html += `</div>`;
     });
 
     // Scripts
     html += `<script>`;
-    html += `var LBLS=${JSON.stringify(lblData)};var PNOW=${JSON.stringify(now)};`;
+    html += `var LBLS=${JSON.stringify(lblData).replace(/</g, "\\u003c")};var PNOW=${JSON.stringify(now)};`;
     html += `function renderAll(){if(typeof JsBarcode==="undefined"||typeof qrcode==="undefined"){setTimeout(renderAll,200);return;}`;
     targets.forEach((p, i) => {
-      const pno = (p.flash_pno || "").replace(/"/g, "");
-      html += `try{JsBarcode("#bc${i}","${pno}",{format:"CODE128",width:2.2,height:45,displayValue:false,margin:0});}catch(e){}`;
-      html += `try{var q=qrcode(0,"M");q.addData("${pno}");q.make();var c=document.getElementById("qr${i}");if(c){var ctx=c.getContext("2d");var sz=q.getModuleCount();var cs=Math.floor(170/sz);for(var r=0;r<sz;r++)for(var cl=0;cl<sz;cl++)if(q.isDark(r,cl)){ctx.fillStyle="#000";ctx.fillRect(cl*cs,r*cs,cs,cs);}}}catch(e){}`;
+      const pno = JSON.stringify(p.flash_pno || "").replace(/</g, "\\u003c");
+      html += `try{JsBarcode("#bc${i}",${pno},{format:"CODE128",width:2.2,height:45,displayValue:false,margin:0});}catch(e){}`;
+      html += `try{var q=qrcode(0,"M");q.addData(${pno});q.make();var c=document.getElementById("qr${i}");if(c){var ctx=c.getContext("2d");var sz=q.getModuleCount();var cs=Math.floor(170/sz);for(var r=0;r<sz;r++)for(var cl=0;cl<sz;cl++)if(q.isDark(r,cl)){ctx.fillStyle="#000";ctx.fillRect(cl*cs,r*cs,cs,cs);}}}catch(e){}`;
     });
     html += `}`;
     html += `function updateLabel(idx,checked){var el=document.getElementById("lbl"+idx);if(el){if(checked){el.classList.remove("hide-print");el.style.opacity="1";}else{el.classList.add("hide-print");el.style.opacity="0.3";}}}`;
@@ -2126,8 +2181,7 @@ export default function FlashBackend() {
     html += `function printSelected(){window.print();}`;
     html += `function cut(ctx,t,max){t=t||"";if(ctx.measureText(t).width<=max)return t;while(t.length&&ctx.measureText(t+"…").width>max)t=t.slice(0,-1);return t+"…";}`;
     html += `function drawLbl(ctx,d,idx,total,W,H,now){ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.strokeStyle="#000";ctx.lineWidth=4;ctx.strokeRect(2,2,W-4,H-4);ctx.lineWidth=2;ctx.fillStyle="#000";ctx.textBaseline="alphabetic";`;
-    html += `ctx.textAlign="left";ctx.font="italic 900 40px Arial";ctx.fillText("FLASH",18,56);ctx.font="900 14px Arial";ctx.fillText("EXPRESS",150,56);`;
-    html += `var sc=String(d.sc||"").split("-");var pre=sc[0]||"",mid=sc[1]||"",suf=sc.slice(2).join("-");var sx=320,sy=60;ctx.textAlign="left";ctx.fillStyle="#000";ctx.font="900 38px Arial";ctx.fillText(pre,sx,sy);sx+=ctx.measureText(pre).width+10;ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+12;ctx.font="900 64px Arial";ctx.fillText(mid,sx,sy+2);sx+=ctx.measureText(mid).width+12;ctx.font="900 38px Arial";ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+10;ctx.fillText(suf,sx,sy);`;
+    html += `ctx.textAlign="left";if(d.carrier==="J&T EXPRESS"){ctx.font="900 48px Arial";ctx.fillText("J&T EXPRESS",18,60);}else{ctx.font="italic 900 40px Arial";ctx.fillText("FLASH",18,56);ctx.font="900 14px Arial";ctx.fillText("EXPRESS",150,56);var sc=String(d.sc||"").split("-");var pre=sc[0]||"",mid=sc[1]||"",suf=sc.slice(2).join("-");var sx=320,sy=60;ctx.textAlign="left";ctx.fillStyle="#000";ctx.font="900 38px Arial";ctx.fillText(pre,sx,sy);sx+=ctx.measureText(pre).width+10;ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+12;ctx.font="900 64px Arial";ctx.fillText(mid,sx,sy+2);sx+=ctx.measureText(mid).width+12;ctx.font="900 38px Arial";ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+10;ctx.fillText(suf,sx,sy);}`;
     html += `ctx.beginPath();ctx.moveTo(0,88);ctx.lineTo(W,88);ctx.stroke();`;
     html += `try{var bcv=document.createElement("canvas");JsBarcode(bcv,d.pno||" ",{format:"CODE128",width:2,height:80,displayValue:false,margin:0});ctx.drawImage(bcv,60,96,W-120,98);}catch(e){}ctx.beginPath();ctx.moveTo(0,200);ctx.lineTo(W,200);ctx.stroke();`;
     html += `ctx.fillStyle="#f6f6f6";ctx.fillRect(2,200,W-4,46);ctx.fillStyle="#000";ctx.textAlign="center";ctx.font="900 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.pno||"",W/2,234);ctx.beginPath();ctx.moveTo(0,246);ctx.lineTo(W,246);ctx.stroke();`;
@@ -2139,7 +2193,7 @@ export default function FlashBackend() {
     html += `if(d.item){ctx.fillStyle="#000";ctx.textAlign="left";ctx.font="800 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"สินค้า: "+d.item,660),20,675);}`;
     html += `try{var q=qrcode(0,"M");q.addData(d.pno||" ");q.make();var n=q.getModuleCount();var qs=172,qx=W-198,qy=508,cell=qs/n;ctx.fillStyle="#000";for(var r=0;r<n;r++)for(var c=0;c<n;c++)if(q.isDark(r,c))ctx.fillRect(qx+c*cell,qy+r*cell,Math.ceil(cell),Math.ceil(cell));}catch(e){}`;
     html += `ctx.beginPath();ctx.moveTo(0,705);ctx.lineTo(W,705);ctx.stroke();ctx.fillStyle="#777";ctx.font="14px 'Sarabun',Tahoma,sans-serif";ctx.textAlign="left";ctx.fillText(now+"  พิมพ์ครั้งที่: 1",16,730);ctx.textAlign="center";ctx.fillText((idx+1)+"/"+total,W/2,730);ctx.textAlign="right";ctx.fillText("THE MT",W-16,730);ctx.textAlign="left";}`;
-    html += `async function downloadOurLabels(){var btn=document.querySelector(".btn-dl");var sel=LBLS.filter(function(x){var el=document.getElementById("lbl"+x.i);return el&&!el.classList.contains("hide-print");});if(!sel.length){alert("ไม่มีใบที่เลือก");return;}if(typeof jspdf==="undefined"||typeof JsBarcode==="undefined"||typeof qrcode==="undefined"){alert("กำลังโหลดไลบรารี ลองใหม่อีกครั้ง");return;}btn.disabled=true;var origin=btn.innerHTML;try{if(document.fonts&&document.fonts.ready){await document.fonts.ready;}}catch(e){}try{var W=1000,H=750;var pdf=new jspdf.jsPDF({orientation:"landscape",unit:"mm",format:[100,75]});var cv=document.createElement("canvas");cv.width=W;cv.height=H;var ctx=cv.getContext("2d");for(var idx=0;idx<sel.length;idx++){if(idx>0)pdf.addPage([100,75],"landscape");drawLbl(ctx,sel[idx],idx,sel.length,W,H,PNOW);var img=cv.toDataURL("image/jpeg",0.9);pdf.addImage(img,"JPEG",0,0,100,75);btn.innerHTML="⏳ "+(idx+1)+"/"+sel.length;if(idx%10===9)await new Promise(function(r){setTimeout(r,0);});}pdf.save("flash-labels-"+sel.length+".pdf");btn.innerHTML="✅ ดาวน์โหลดแล้ว "+sel.length+" ใบ";setTimeout(function(){btn.innerHTML=origin;btn.disabled=false;},3000);}catch(e){alert("ผิดพลาด: "+e.message);btn.disabled=false;btn.innerHTML=origin;}}`;
+    html += `async function downloadOurLabels(){var btn=document.querySelector(".btn-dl");var sel=LBLS.filter(function(x){var el=document.getElementById("lbl"+x.i);return el&&!el.classList.contains("hide-print");});if(!sel.length){alert("ไม่มีใบที่เลือก");return;}if(typeof jspdf==="undefined"||typeof JsBarcode==="undefined"||typeof qrcode==="undefined"){alert("กำลังโหลดไลบรารี ลองใหม่อีกครั้ง");return;}btn.disabled=true;var origin=btn.innerHTML;try{if(document.fonts&&document.fonts.ready){await document.fonts.ready;}}catch(e){}try{var W=1000,H=750;var pdf=new jspdf.jsPDF({orientation:"landscape",unit:"mm",format:[100,75]});var cv=document.createElement("canvas");cv.width=W;cv.height=H;var ctx=cv.getContext("2d");for(var idx=0;idx<sel.length;idx++){if(idx>0)pdf.addPage([100,75],"landscape");drawLbl(ctx,sel[idx],idx,sel.length,W,H,PNOW);var img=cv.toDataURL("image/jpeg",0.9);pdf.addImage(img,"JPEG",0,0,100,75);btn.innerHTML="⏳ "+(idx+1)+"/"+sel.length;if(idx%10===9)await new Promise(function(r){setTimeout(r,0);});}pdf.save((sel.some(function(x){return x.carrier==="J&T EXPRESS";})?"jnt":"flash")+"-labels-"+sel.length+".pdf");btn.innerHTML="✅ ดาวน์โหลดแล้ว "+sel.length+" ใบ";setTimeout(function(){btn.innerHTML=origin;btn.disabled=false;},3000);}catch(e){alert("ผิดพลาด: "+e.message);btn.disabled=false;btn.innerHTML=origin;}}`;
     html += `renderAll();`;
     html += `<\/script></body></html>`;
 
@@ -2148,6 +2202,7 @@ export default function FlashBackend() {
     win.document.open();
     win.document.write(html);
     win.document.close();
+    if (targets.some(isJtParcel)) win.document.getElementById("officialJtLabels")?.addEventListener("click", () => openPrintPage(rawTargets, { forceOfficial: true }));
   };
 
   const batchMarkPrinted = async () => {
