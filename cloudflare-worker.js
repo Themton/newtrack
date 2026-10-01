@@ -60,13 +60,77 @@ function md5(input) {
 
 function base64(bytes) { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); }
 
+async function boundedText(req, limit = 32768) {
+  const reader = req.body?.getReader();
+  if (!reader) return "";
+  const chunks = []; let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) { await reader.cancel(); throw new Error("too-large"); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return new TextDecoder().decode(bytes);
+}
+
+async function equalSecret(actual, expected) {
+  const encoder = new TextEncoder();
+  const hashes = await Promise.all([actual, expected].map(x => crypto.subtle.digest("SHA-256", encoder.encode(x))));
+  const a = new Uint8Array(hashes[0]), b = new Uint8Array(hashes[1]);
+  let difference = 0;
+  for (let i = 0; i < a.length; i++) difference |= a[i] ^ b[i];
+  return difference === 0;
+}
+
+// Separate UAT inboxes. Production credentials must never fall back to UAT keys.
+async function jtCallback(req, env, vip) {
+  const reply = (code, msg, status, billCode) => Response.json({ code, msg, data: billCode ? { billCode } : null, succ: code === 1, fail: code !== 1 }, { status });
+  if (req.method !== "POST") return reply(0, "POST required", 405);
+  const suffix = { VIP8530310123: "23", VIP8530310124: "24" }[vip];
+  const apiAccount = env[`JT_${suffix}_API_ACCOUNT`];
+  const privateKey = env[`JT_${suffix}_PRIVATE_KEY`];
+  if (!env.JT_TRACKING_INBOX || !apiAccount || !privateKey) return reply(0, "Tracking inbox not configured", 503);
+  if (!req.headers.get("content-type")?.toLowerCase().startsWith("application/x-www-form-urlencoded")) return reply(0, "Invalid content type", 415);
+  try {
+    const form = new URLSearchParams(await boundedText(req));
+    const raw = form.get("bizContent");
+    if (!raw || form.getAll("bizContent").length !== 1) return reply(0, "Invalid business content", 400);
+    const signature = base64(new Uint8Array(md5(raw + privateKey).match(/../g).map(h => parseInt(h, 16))));
+    const validAccount = await equalSecret(req.headers.get("apiAccount") || "", apiAccount);
+    const validDigest = await equalSecret(req.headers.get("digest") || "", signature);
+    if (!validAccount || !validDigest) return reply(0, "Signature rejected", 401);
+    const timestamp = Number(req.headers.get("timestamp"));
+    if (!Number.isSafeInteger(timestamp) || timestamp <= 0 || Math.abs(Date.now() - timestamp) > 86400000) return reply(0, "Invalid timestamp", 400);
+    const data = JSON.parse(raw);
+    const traces = data.details ?? data.traces;
+    if (data.logisticproviderid !== "JNT" || typeof data.billCode !== "string" || !/^[A-Za-z0-9-]{1,40}$/.test(data.billCode) || !Array.isArray(traces) || !traces.length || traces.length > 100) return reply(0, "Invalid tracking event", 400);
+    if (traces.some(t => !t || typeof t.scanTime !== "string" || typeof t.scanType !== "string" || !t.txlogisticid)) return reply(0, "Incomplete tracking event", 400);
+    // Deterministic event key makes retries idempotent; no Flash rows are touched.
+    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+    const eventId = Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join("");
+    await env.JT_TRACKING_INBOX.put(`uat/${vip}/${data.billCode}/${eventId}`, JSON.stringify({ receivedAt: new Date().toISOString(), vip, data }));
+    return reply(1, "success", 200, data.billCode);
+  } catch (error) {
+    if (error.message === "too-large") return reply(0, "Request too large", 413);
+    if (error instanceof SyntaxError) return reply(0, "Invalid JSON", 400);
+    return reply(0, "Tracking event could not be stored; retry", 503);
+  }
+}
+
 async function jtRequest(path, body, env) {
-  const apiAccount = env.JT_API_ACCOUNT;
-  const privateKey = env.JT_PRIVATE_KEY;
-  const businessPassword = env.JT_BUSINESS_PASSWORD;
-  if (!apiAccount || !privateKey || !businessPassword) return { code: 500, msg: "J&T Worker Secrets are not configured" };
-  const bizContent = { ...body, customerCode: env.JT_CUSTOMER_CODE, password: businessPassword };
-  if (!env.JT_CUSTOMER_CODE) throw new Error("J&T customer code is not configured");
+  const vip = body.customerCode;
+  const suffix = { VIP8530310123: "23", VIP8530310124: "24" }[vip];
+  if (!suffix) return { code: 400, msg: "Unknown J&T VIP account" };
+  const apiAccount = env[`JT_${suffix}_API_ACCOUNT`];
+  const privateKey = env[`JT_${suffix}_PRIVATE_KEY`];
+  const businessPassword = env[`JT_${suffix}_BUSINESS_PASSWORD`];
+  if (!apiAccount || !privateKey || !businessPassword) return { code: 503, msg: `J&T VIP ${suffix} is not configured` };
+  const bizContent = { ...body, customerCode: vip, password: businessPassword };
   const timestamp = Date.now();
   const digestBytes = md5(JSON.stringify(bizContent) + privateKey).match(/../g).map(h => parseInt(h, 16));
   const digest = base64(new Uint8Array(digestBytes));
@@ -264,6 +328,9 @@ export default {
     const url = new URL(req.url);
     const json = (data, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
+    const callback = url.pathname.match(/^\/jt-callback\/uat\/(VIP853031012[34])$/);
+    if (callback) return jtCallback(req, env, callback[1]);
+
     if (url.pathname.startsWith("/jt-api/")) {
       if (!env.JT_ACCESS_TOKEN) return json({ msg: "J&T access is not configured" }, 503);
       const supplied = req.headers.get("Authorization") || "";
@@ -292,6 +359,14 @@ export default {
       const body = await req.json().catch(() => ({}));
       if (!body.customerCode || !body.txlogisticId || !body.reason) return json({ code: 400, msg: "customerCode, txlogisticId and reason are required" }, 400);
       try { return json(await jtRequest("/webopenplatformapi/api/order/cancelOrder", body, env)); } catch (e) { return json({ code: 500, msg: e.message }, 502); }
+    }
+    if (url.pathname === "/jt-api/tracking" && req.method === "POST") {
+      let body;
+      try { body = JSON.parse(await boundedText(req)); } catch { return json({ code: 400, msg: "Invalid or oversized request" }, 400); }
+      if (typeof body.customerCode !== "string") return json({ code: 400, msg: "J&T VIP account is required" }, 400);
+      if (typeof body.txlogisticId !== "string" || !body.txlogisticId.trim() || body.txlogisticId.length > 50) return json({ code: 400, msg: "txlogisticId is required" }, 400);
+      try { return json(await jtRequest("/webopenplatformapi/api/logistics/trace", { customerCode: body.customerCode, txlogisticId: body.txlogisticId, ...(body.billCode ? { billCode: body.billCode } : {}), lang: "th" }, env)); }
+      catch { return json({ code: 500, msg: "J&T tracking request failed" }, 502); }
     }
     if (url.pathname === "/jt-api/label" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));

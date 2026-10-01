@@ -69,7 +69,7 @@ const jtApi = {
     if (!parcel.parcel_no) throw new Error("ต้องบันทึกรายการก่อนสร้างเลข J&T");
     if (!Number.isFinite(Number(parcel.weight)) || Number(parcel.weight) <= 0) throw new Error("น้ำหนักต้องมากกว่า 0");
     const body = {
-      actionType: "add", customerCode: options.customerCode || "VIP111111761",
+      actionType: "add", customerCode: options.customerCode,
       txlogisticId: parcel.parcel_no || ("MT" + Date.now()), orderType: "1", serviceType: "1",
       payType: "PP_PM", expressType: "EZ", deliveryType: 1,
       shopId: options.shopId, shopName: options.shopName, goodsValue: Number(parcel.declared_value || parcel.sale_price || 0).toFixed(2),
@@ -87,14 +87,14 @@ const jtApi = {
     return data;
   },
   async cancelOrder(parcel, reason = "The customer cancelled the order") {
-    const body = { customerCode: parcel.customerCode || "VIP111111761", txlogisticId: parcel.parcel_no, billCode: parcel.jt_pno || parcel.flash_pno, reason };
+    const body = { customerCode: parcel.customerCode, txlogisticId: parcel.parcel_no, billCode: parcel.jt_pno || parcel.flash_pno, reason };
     const res = await fetch(`${WORKER_URL}/jt-api/cancel`, { method: "POST", headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(25000) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || String(data.code) !== "1") throw new Error(data.msg || "J&T ยกเลิกออเดอร์ไม่สำเร็จ");
     return data;
   },
   async fetchLabelBytes(parcel, type = this.labelType) {
-    const body = { customerCode: parcel.customerCode || "VIP111111761", txlogisticId: parcel.parcel_no, billCode: parcel.flash_pno, type, asPdf: true };
+    const body = { customerCode: parcel.customerCode, txlogisticId: parcel.parcel_no, billCode: parcel.flash_pno, type, asPdf: true };
     const res = await fetch(`${WORKER_URL}/jt-api/label`, { method: "POST", headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
     if (!res.ok || !res.headers.get("Content-Type")?.includes("application/pdf")) {
       const data = await res.json().catch(() => ({}));
@@ -727,11 +727,13 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
   // โหลดข้อมูลร้านค้าเริ่มต้น
   useEffect(() => {
     if (!isEdit && shops?.length) {
-      const def = shops.find(s => s.is_default) || shops[0];
+      const matching = shops.filter(s => s.is_active && (s.carrier === carrier || (carrier === "flash" && !s.carrier)) && (carrier !== "jnt" || JNT_APPS.includes(s.jt_app)));
+      const def = matching.find(s => s.is_default) || matching[0];
       if (def) setForm(f => ({ ...f, sender_name: def.name || "", sender_phone: def.phone || "", sender_address: def.address || "", sender_province: def.province || "", sender_postal: def.postal || "", sender_district: def.district || "", sender_subdistrict: def.subdistrict || "", shop_id: def.id }));
     }
-  }, [isEdit, shops]);
+  }, [isEdit, shops, carrier]);
 
+  const availableShops = (shops || []).filter(s => s.is_active && (s.carrier === carrier || (carrier === "flash" && !s.carrier)) && (carrier !== "jnt" || JNT_APPS.includes(s.jt_app)));
   const selectShop = (shopId) => {
     const shop = shops?.find(s => s.id === shopId);
     if (shop) setForm(f => ({ ...f, sender_name: shop.name || "", sender_phone: shop.phone || "", sender_address: shop.address || "", sender_province: shop.province || "", sender_postal: shop.postal || "", sender_district: shop.district || "", sender_subdistrict: shop.subdistrict || "", shop_id: shop.id }));
@@ -758,8 +760,9 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const handleSave = async () => {
     if (!form.receiver_name || !form.receiver_phone) { uiAlert("กรุณากรอกชื่อ+เบอร์ผู้รับ"); return; }
+    if (carrier === "jnt" && !availableShops.some(s => s.id === form.shop_id)) { uiAlert("กรุณาเลือกร้าน J&T ที่ผูกบัญชี VIP แล้ว"); return; }
     setSaving(true);
-try { const d = { ...form, carrier }; if (carrier === "flash") delete d.carrier; delete d.id; delete d.created_at; delete d.updated_at; if (locked) { ["carrier", "receiver_address", "receiver_subdistrict", "receiver_district", "receiver_province", "receiver_postal", "cod_enabled", "cod_amount"].forEach(key => delete d[key]); } if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
+try { const d = { ...form }; delete d.carrier; delete d.id; delete d.created_at; delete d.updated_at; if (locked) { ["receiver_address", "receiver_subdistrict", "receiver_district", "receiver_province", "receiver_postal", "cod_enabled", "cod_amount"].forEach(key => delete d[key]); } if (carrier === "jnt") d.source = "jnt_uat"; else if (isEdit && parcel.source === "jnt_uat" && !locked) d.source = "manual"; if (isEdit) { await sb.update("fx_parcels", parcel.id, d); } else { d.parcel_no = generateParcelNo(); d.status = "draft"; d.created_by = user.id; d.created_by_name = user.display_name; d.source = carrier === "jnt" ? "jnt_uat" : "manual"; await sb.insert("fx_parcels", d); try { await sb.insert("fx_activity_log", { actor_id: user.id, actor_name: user.display_name, action: "สร้างพัสดุ", detail: `${d.parcel_no} · ${d.receiver_name}` }); } catch {} } sb.broadcastChange(); onSave(); } catch (e) { uiAlert(e.message); }
     setSaving(false);
   };
   const I = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
@@ -777,16 +780,16 @@ try { const d = { ...form, carrier }; if (carrier === "flash") delete d.carrier;
           {/* ═══ เลือกร้านค้า ═══ */}
           <div style={{ marginBottom: 20 }}>
             <label htmlFor="parcel-carrier" style={L}>ขนส่ง</label>
-            <select id="parcel-carrier" value={carrier} onChange={e => setCarrier(e.target.value)} disabled={locked} style={{ ...I, background: locked ? "#f1f5f9" : "#fff" }}>
+            <select id="parcel-carrier" value={carrier} onChange={e => { const next = e.target.value; setCarrier(next); const first = (shops || []).find(s => s.is_active && (s.carrier === next || (next === "flash" && !s.carrier)) && (next !== "jnt" || JNT_APPS.includes(s.jt_app))); if (first) selectShop(first.id); else setForm(f => ({ ...f, shop_id: "", sender_name: "", sender_phone: "", sender_address: "", sender_province: "", sender_postal: "", sender_district: "", sender_subdistrict: "" })); }} disabled={locked} style={{ ...I, background: locked ? "#f1f5f9" : "#fff" }}>
               {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🏪 ร้านค้า / ผู้ส่ง</h3>
             {shops?.length > 0 && (
-              <select value={form.shop_id || ""} onChange={e => selectShop(e.target.value)} style={{ padding: "6px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", background: "#fff", fontWeight: 600, color: "#dc2626" }}>
+              <select value={availableShops.some(s => s.id === form.shop_id) ? form.shop_id : ""} onChange={e => selectShop(e.target.value)} style={{ padding: "6px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", background: "#fff", fontWeight: 600, color: "#dc2626" }}>
                 <option value="">-- เลือกร้าน --</option>
-                {shops.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {availableShops.map(s => <option key={s.id} value={s.id}>{s.name}{carrier === "jnt" ? ` · ${s.jt_app}` : ""}</option>)}
               </select>
             )}
           </div>
@@ -1777,14 +1780,21 @@ export default function FlashBackend() {
     const mchId = shop?.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId;
     return flashApi.getAccount(mchId);
   };
+  const withJtAccount = (p) => {
+    const shop = shops.find(s => s.id === p.shop_id && s.carrier === "jnt" && JNT_APPS.includes(s.jt_app));
+    if (!shop) throw new Error("ไม่พบบัญชี VIP ของร้าน J&T สำหรับพัสดุนี้");
+    return { ...p, customerCode: shop.jt_app };
+  };
 
   const saveJtOrder = async (p) => {
+    const shop = shops.find(s => s.id === p.shop_id && s.is_active && s.carrier === "jnt" && JNT_APPS.includes(s.jt_app));
+    if (!shop) throw new Error("รายการนี้ยังไม่ได้ผูกร้าน J&T กับบัญชี VIP");
     const pendingKey = "jnt-pending-" + p.id;
     const pending = localStorage.getItem(pendingKey);
-    const result = pending ? JSON.parse(pending) : await jtApi.createOrder(p);
+    const result = pending ? JSON.parse(pending) : await jtApi.createOrder(p, { customerCode: shop.jt_app });
     if (!result.data?.billCode) throw new Error("J&T ไม่ส่งเลขพัสดุกลับมา");
     localStorage.setItem(pendingKey, JSON.stringify(result));
-    const updates = { carrier: "jnt", source: "jnt_uat", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: result.data, status: "created" };
+    const updates = { source: "jnt_uat", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: { ...result.data, customerCode: shop.jt_app }, status: "created" };
     await sb.update("fx_parcels", p.id, updates);
     localStorage.removeItem(pendingKey);
     setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
@@ -1836,7 +1846,7 @@ export default function FlashBackend() {
       if (!await uiConfirm(`ยกเลิกออเดอร์ J&T UAT ${p.flash_pno}?`)) return;
       setFlashLoading(p.id);
       try {
-        await jtApi.cancelOrder(p);
+        await jtApi.cancelOrder(withJtAccount(p));
         if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" });
         setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x));
         await sb.broadcastChange();
@@ -1882,7 +1892,7 @@ export default function FlashBackend() {
   const [jntAccess, setJntAccess] = useState("");
   const openCarrierPicker = (parcel = null) => {
     const targets = parcel ? [parcel] : parcels.filter(p => selectedIds.has(p.id));
-    const carriers = new Set(targets.map(p => p.carrier === "jt" ? "jnt" : p.carrier || shops.find(s => s.id === p.shop_id)?.carrier || "flash"));
+    const carriers = new Set(targets.map(p => p.source === "jnt_uat" ? "jnt" : shops.find(s => s.id === p.shop_id)?.carrier || "flash"));
     setSelectedCarrier(carriers.size === 1 ? [...carriers][0] : "flash");
     setCarrierRequest({ parcel });
   };
@@ -1891,6 +1901,7 @@ export default function FlashBackend() {
     const targets = parcels.filter(p => selectedIds.has(p.id) && !p.flash_pno && p.receiver_name && p.receiver_phone);
     if (!targets.length) { uiAlert("ไม่มีรายการที่เลือก (ต้องยังไม่มีเลข Tracking + มีข้อมูลผู้รับ)"); return; }
     if (carrier === "jnt" && isDemo) { uiAlert("โหมดตัวอย่างไม่สามารถสร้างเลข J&T ได้"); return; }
+    if (carrier === "jnt" && targets.some(p => !shops.some(s => s.id === p.shop_id && s.is_active && s.carrier === "jnt" && JNT_APPS.includes(s.jt_app)))) { uiAlert("มีพัสดุที่ไม่ได้ผูกร้าน J&T กับบัญชี VIP"); return; }
     if (!await uiConfirm(`สร้างเลข Tracking ${carrier === "jnt" ? "J&T Express" : "Flash Express"} ${targets.length} รายการ?`)) return;
     setBatchProgress({ total: targets.length, done: 0, success: 0, errors: [] });
     let success = 0; const errors = [];
@@ -1968,7 +1979,7 @@ export default function FlashBackend() {
         const { PDFDocument } = await import("pdf-lib");
         const merged = await PDFDocument.create();
         for (const p of rawTargets) {
-          const bytes = p.source === "jnt_uat" ? await jtApi.fetchLabelBytes(p) : await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small");
+          const bytes = p.source === "jnt_uat" ? await jtApi.fetchLabelBytes(withJtAccount(p)) : await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small");
           const doc = await PDFDocument.load(bytes);
           const pages = await merged.copyPages(doc, doc.getPageIndices());
           pages.forEach(page => merged.addPage(page));
@@ -2174,7 +2185,7 @@ export default function FlashBackend() {
       const slice = targets.slice(i, i + CONC);
       await Promise.all(slice.map(async (p) => {
         try {
-          const result = p.source === "jnt_uat" ? await jtApi.cancelOrder(p) : await flashApi.cancelOrder(p.flash_pno, getFlashAccount(p));
+          const result = p.source === "jnt_uat" ? await jtApi.cancelOrder(withJtAccount(p)) : await flashApi.cancelOrder(p.flash_pno, getFlashAccount(p));
           if (result.code === 1 || result.code === 1032) {
             if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" });
             setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x));
@@ -4979,6 +4990,7 @@ export default function FlashBackend() {
                   {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
                 {selectedCarrier === "jnt" && <>
+                  <p style={{ fontSize: 13, color: "#334155" }}>บัญชีของร้าน: {(() => { const targets = carrierRequest.parcel ? [carrierRequest.parcel] : parcels.filter(p => selectedIds.has(p.id)); const accounts = [...new Set(targets.map(p => shops.find(s => s.id === p.shop_id)?.jt_app).filter(Boolean))]; return accounts.length ? accounts.join(", ") : "ยังไม่ได้เลือกร้าน J&T"; })()}</p>
                   <label htmlFor="jnt-access">รหัสเข้าใช้งาน J&T</label>
                   <input id="jnt-access" type="password" autoComplete="off" value={jntAccess} onChange={e => setJntAccess(e.target.value)} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: 10, marginTop: 8 }} />
                   <p style={{ fontSize: 12, color: "#64748b" }}>บัญชี J&T ปัจจุบันเป็นระบบทดสอบ ยังใช้ส่งพัสดุจริงไม่ได้</p>
@@ -5195,7 +5207,7 @@ export default function FlashBackend() {
                               {perm.edit && !p.flash_pno && <button title="แก้ไข" onClick={() => { setEditParcel(p); setShowForm(true); }} style={{ width: 26, height: 26, border: "1px solid #e2e8f0", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>}
                               {perm.delete && p.status !== "cancelled" && <button title="ลบ" onClick={() => handleDelete(p)} style={{ width: 26, height: 26, border: "1px solid #fca5a5", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>🗑️</button>}
                             </>}
-                            {perm.print && p.source === "jnt_uat" && p.flash_pno && p.status !== "cancelled" && <button onClick={() => jtApi.fetchLabel(p).catch(e => uiAlert(e.message))} style={{ cursor: "pointer" }}>ใบปะหน้า J&T</button>}
+                            {perm.print && p.source === "jnt_uat" && p.flash_pno && p.status !== "cancelled" && <button onClick={() => { try { jtApi.fetchLabel(withJtAccount(p)).catch(e => uiAlert(e.message)); } catch (e) { uiAlert(e.message); } }} style={{ cursor: "pointer" }}>ใบปะหน้า J&T</button>}
                             <button title="ดูรายละเอียด" onClick={() => setViewParcel(p)} style={{ width: 26, height: 26, border: "1px solid #e2e8f0", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>👁️</button>
                           </div></td>
                         </tr>); })}</tbody>
@@ -5311,7 +5323,7 @@ export default function FlashBackend() {
                   for (let i = 0; i < list.length; i += CONCURRENCY) {
                     const slice = list.slice(i, i + CONCURRENCY);
                     await Promise.all(slice.map(async (p, j) => {
-                      try { results[i + j] = p.source === "jnt_uat" ? await jtApi.fetchLabelBytes(p) : await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small"); }
+                      try { results[i + j] = p.source === "jnt_uat" ? await jtApi.fetchLabelBytes(withJtAccount(p)) : await flashApi.fetchLabelBytes(p.flash_pno, getFlashAccount(p), "small"); }
                       catch { fails.push(p.flash_pno); results[i + j] = null; }
                       setLabelProgress({ done: ++done, total: list.length });
                     }));
