@@ -43,6 +43,7 @@ const CARRIERS = [
   { value: "flash", label: "Flash Express" },
   { value: "jnt", label: "J&T EXPRESS" },
 ];
+const JNT_APPS = ["VIP8530310123", "VIP8530310124"];
 const parcelCarrier = p => p.source === "jnt_uat" ? "jnt" : p.flash_pno ? "flash" : "";
 
 // J&T Open Platform — credentials stay in the Worker, never in the browser.
@@ -1222,7 +1223,7 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ name: "", phone: "", address: "", province: "", postal: "", flash_mch_id: FLASH_ACCOUNTS[0]?.mchId || "" });
+  const [form, setForm] = useState({ name: "", phone: "", address: "", province: "", postal: "", flash_mch_id: FLASH_ACCOUNTS[0]?.mchId || "", jt_app: "" });
   const [saving, setSaving] = useState(false);
   const I = { width: "100%", padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 14, outline: "none", fontFamily: "inherit" };
 
@@ -1232,14 +1233,16 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
   }, [isDemo]);
   useEffect(() => { load(); }, [load]);
 
-  const openAdd = () => { setShopCarrier("flash"); setEditId(null); setForm({ name: "", phone: "", address: "", province: "", postal: "", flash_mch_id: FLASH_ACCOUNTS[0]?.mchId || "" }); setShowForm(true); };
-  const openEdit = (s) => { setShopCarrier(s.carrier === "jnt" ? "jnt" : "flash"); setEditId(s.id); setForm({ name: s.name || "", phone: s.phone || "", address: s.address || "", province: s.province || "", postal: s.postal || "", flash_mch_id: s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId || "" }); setShowForm(true); };
+  const openAdd = () => { setShopCarrier("flash"); setEditId(null); setForm({ name: "", phone: "", address: "", province: "", postal: "", flash_mch_id: FLASH_ACCOUNTS[0]?.mchId || "", jt_app: "" }); setShowForm(true); };
+  const openEdit = (s) => { setShopCarrier(s.carrier === "jnt" ? "jnt" : "flash"); setEditId(s.id); setForm({ name: s.name || "", phone: s.phone || "", address: s.address || "", province: s.province || "", postal: s.postal || "", flash_mch_id: s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId || "", jt_app: s.jt_app || "" }); setShowForm(true); };
 
   const handleSave = async () => {
     if (!form.name || !form.phone) { uiAlert("กรุณากรอกชื่อร้าน + เบอร์โทร"); return; }
+    if (shopCarrier === "jnt" && !JNT_APPS.includes(form.jt_app)) { uiAlert("กรุณาเลือกบัญชี J&T ของร้าน"); return; }
     setSaving(true);
     try {
       const payload = { ...form, carrier: shopCarrier };
+      if (shopCarrier === "flash") delete payload.jt_app;
       if (editId) { await sb.update("fx_shops", editId, payload); }
       else { await sb.insert("fx_shops", { ...payload, is_active: true, is_default: shops.length === 0 }); }
       setShowForm(false); load(); onUpdate?.();
@@ -1277,6 +1280,7 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>รหัสไปรษณีย์</label><input value={form.postal} onChange={e => setForm(f => ({ ...f, postal: e.target.value }))} placeholder="XXXXX" style={I} /></div>
           <div style={{ gridColumn: "span 2" }}><label htmlFor="shop-carrier" style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>ขนส่งประจำร้าน</label><select id="shop-carrier" value={shopCarrier} onChange={e => setShopCarrier(e.target.value)} style={{ ...I, background: "#fff" }}>{CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
           {shopCarrier === "flash" && <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>⚡ บัญชี Flash Express</label><select value={form.flash_mch_id} onChange={e => setForm(f => ({ ...f, flash_mch_id: e.target.value }))} style={{ ...I, background: "#fff", borderColor: "#fbbf24" }}>{FLASH_ACCOUNTS.map(a => <option key={a.mchId} value={a.mchId}>{a.name} ({a.mchId})</option>)}</select></div>}
+          {shopCarrier === "jnt" && <div style={{ gridColumn: "span 2" }}><label htmlFor="shop-jnt-app" style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>บัญชี J&T *</label><select id="shop-jnt-app" value={form.jt_app} onChange={e => setForm(f => ({ ...f, jt_app: e.target.value }))} style={{ ...I, background: "#fff" }}><option value="">-- เลือก VIP --</option>{JNT_APPS.map(app => <option key={app} value={app}>{app}</option>)}</select></div>}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <button onClick={handleSave} disabled={saving} style={{ padding: "10px 20px", background: "#059669", color: "#fff", border: "none", borderRadius: 10, fontWeight: 600, cursor: "pointer" }}>{saving ? "..." : editId ? "💾 บันทึก" : "✅ เพิ่มร้าน"}</button>
@@ -1292,7 +1296,7 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
           <div>
             <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name} {s.is_default && <span style={{ fontSize: 10, background: "#ecfdf5", color: "#059669", padding: "2px 8px", borderRadius: 10, fontWeight: 600, marginLeft: 6 }}>ค่าเริ่มต้น</span>}</div>
             <div style={{ fontSize: 12, color: "#64748b" }}>{s.phone} · {s.address} {s.province} {s.postal}</div>
-            <div style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>{s.carrier === "jnt" ? "J&T EXPRESS" : `⚡ Flash Express · ${s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId}`}</div>
+            <div style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>{s.carrier === "jnt" ? `J&T EXPRESS · ${s.jt_app || "ยังไม่เลือก VIP"}` : `⚡ Flash Express · ${s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId}`}</div>
           </div>
           <div style={{ display: "flex", gap: 4 }}>
             <button title="แก้ไข" onClick={() => openEdit(s)} style={{ width: 30, height: 30, border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
