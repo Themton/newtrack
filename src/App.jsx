@@ -49,11 +49,11 @@ const parcelCarrier = p => isJtParcel(p) ? "jnt" : p.flash_pno ? "flash" : "";
 
 // J&T Open Platform — credentials stay in the Worker, never in the browser.
 const jtApi = {
-  accessToken: "",
+  sessionToken: (() => { try { return sessionStorage.getItem("fx_jt_session") || ""; } catch { return ""; } })(),
   labelType: 1,
   headers() {
-    if (!this.accessToken) throw new Error("กรุณากรอกรหัสเข้าใช้งาน J&T ตอนเลือกขนส่ง");
-    return { "Content-Type": "application/json", Authorization: "Bearer " + this.accessToken };
+    if (!this.sessionToken) throw new Error("กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่เพื่อใช้ J&T");
+    return { "Content-Type": "application/json", Authorization: "Bearer " + this.sessionToken };
   },
   async createOrder(parcel, options = {}) {
     const required = [
@@ -365,16 +365,16 @@ function LoginScreen({ onLogin, isDemo }) {
         setLoading(false); return;
       }
       const safeUser = username.replace(/[^a-zA-Z0-9_]/g, "");
-      const hash = await sha256(password);
-      const users = await sb.select("fx_users", { filters: `username=eq.${safeUser}&password=eq.${hash}&is_active=eq.true` });
-      if (users?.length) {
-        const user = users[0];
+      const response = await fetch(`${WORKER_URL}/auth/jt-login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: safeUser, password }), signal: AbortSignal.timeout(15000) });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok && result.user && result.session) {
+        const user = result.user;
         sb.update("fx_users", user.id, { last_login: new Date().toISOString() }).catch(() => {});
         sb.insert("fx_login_logs", { user_id: user.id, username: user.username, action: "login" }).catch(() => {});
-        onLogin(user);
+        onLogin(user, result.session);
       } else {
         sb.insert("fx_login_logs", { username, action: "failed" }).catch(() => {});
-        setError("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+        setError(result.msg || "เข้าสู่ระบบไม่ได้");
       }
     } catch (e) { setError("เชื่อมต่อไม่ได้: " + e.message); }
     setLoading(false);
@@ -1396,7 +1396,7 @@ function PublicTracking() {
 }
 export default function FlashBackend() {
   const [user, setUser] = useState(() => {
-    try { const s = sessionStorage.getItem("fx_user"); return s ? JSON.parse(s) : null; } catch { return null; }
+    try { const s = sessionStorage.getItem("fx_user"); return s && sessionStorage.getItem("fx_jt_session") ? JSON.parse(s) : null; } catch { return null; }
   });
   const [parcels, setParcels] = useState([]);
   // เดือนที่เลือกดู (โหลดเฉพาะเดือนนี้เพื่อประหยัด egress) — ค่าเริ่มต้น = เดือนปัจจุบัน
@@ -1422,8 +1422,8 @@ export default function FlashBackend() {
   const activePageRef = useRef(activePage);
   activePageRef.current = activePage;
 
-  const handleLogin = (u) => { const safe = { id: u.id, username: u.username, display_name: u.display_name, role: u.role, avatar_color: u.avatar_color }; setUser(safe); try { sessionStorage.setItem("fx_user", JSON.stringify(safe)); } catch {} };
-  const handleLogout = () => { jtApi.accessToken = ""; setUser(null); setParcels([]); setActivePageRaw("parcels"); try { sessionStorage.removeItem("fx_user"); sessionStorage.removeItem("fx_page"); } catch {} };
+  const handleLogin = (u, session = "") => { const safe = { id: u.id, username: u.username, display_name: u.display_name, role: u.role, avatar_color: u.avatar_color }; jtApi.sessionToken = session; setUser(safe); try { sessionStorage.setItem("fx_user", JSON.stringify(safe)); if (session) sessionStorage.setItem("fx_jt_session", session); } catch {} };
+  const handleLogout = () => { jtApi.sessionToken = ""; setUser(null); setParcels([]); setActivePageRaw("parcels"); try { sessionStorage.removeItem("fx_user"); sessionStorage.removeItem("fx_jt_session"); sessionStorage.removeItem("fx_page"); } catch {} };
 
   // ถ้า user ไม่มีสิทธิ์เข้าหน้าปัจจุบัน → ไปหน้า parcels
   useEffect(() => {
@@ -1892,7 +1892,6 @@ export default function FlashBackend() {
   const [batchProgress, setBatchProgress] = useState(null);
   const [carrierRequest, setCarrierRequest] = useState(null);
   const [selectedCarrier, setSelectedCarrier] = useState("flash");
-  const [jntAccess, setJntAccess] = useState("");
   const openCarrierPicker = (parcel = null) => {
     const targets = parcel ? [parcel] : parcels.filter(p => selectedIds.has(p.id));
     const carriers = new Set(targets.map(p => isJtParcel(p) ? "jnt" : shops.find(s => s.id === p.shop_id)?.carrier || "flash"));
@@ -4994,16 +4993,13 @@ export default function FlashBackend() {
                 </select>
                 {selectedCarrier === "jnt" && <>
                   <p style={{ fontSize: 13, color: "#334155" }}>บัญชีของร้าน: {(() => { const targets = carrierRequest.parcel ? [carrierRequest.parcel] : parcels.filter(p => selectedIds.has(p.id)); const accounts = [...new Set(targets.map(p => shops.find(s => s.id === p.shop_id)?.jt_app).filter(Boolean))]; return accounts.length ? accounts.join(", ") : "ยังไม่ได้เลือกร้าน J&T"; })()}</p>
-                  <label htmlFor="jnt-access">รหัสเข้าใช้งาน J&T</label>
-                  <input id="jnt-access" type="password" autoComplete="off" value={jntAccess} onChange={e => setJntAccess(e.target.value)} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: 10, marginTop: 8 }} />
-                  <p style={{ fontSize: 12, color: "#64748b" }}>J&T EXPRESS · ใช้บัญชี VIP ของร้านที่ผูกไว้ กรุณาตรวจสอบข้อมูลผู้ส่งและผู้รับก่อนสร้างเลขพัสดุจริง</p>
+                  <p style={{ fontSize: 12, color: "#64748b" }}>J&T EXPRESS · ระบบยืนยันสิทธิ์จากการเข้าสู่ระบบอัตโนมัติ ใช้บัญชี VIP ของร้านที่ผูกไว้ กรุณาตรวจสอบข้อมูลผู้ส่งและผู้รับก่อนสร้างเลขพัสดุจริง</p>
                 </>}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
-                  <button onClick={() => { setCarrierRequest(null); setJntAccess(""); }}>ยกเลิก</button>
-                  <button disabled={selectedCarrier === "jnt" && !jntAccess.trim()} onClick={async () => {
+                  <button onClick={() => setCarrierRequest(null)}>ยกเลิก</button>
+                  <button onClick={async () => {
                     const request = carrierRequest;
-                    if (selectedCarrier === "jnt") jtApi.accessToken = jntAccess.trim();
-                    setCarrierRequest(null); setJntAccess("");
+                    setCarrierRequest(null);
                     if (!request.parcel) await batchCreateFlash(selectedCarrier);
                     else if (selectedCarrier === "jnt") await createJtOrder(request.parcel);
                     else await createFlashOrder(request.parcel);
