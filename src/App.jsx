@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ADDR_DB, { PROVINCES } from "./addr.js";
 import { shopSenderLocation } from "./shopSenderLocation.js";
+import { jtLabelDetails } from "./jtLabelDetails.js";
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
@@ -2062,11 +2063,18 @@ export default function FlashBackend() {
     const lblData = targets.map((p, i) => {
       let fr = p.flash_api_response || {};
       if (typeof fr === "string") { try { fr = JSON.parse(fr); } catch { fr = {}; } }
+      const jt = isJtParcel(p) ? jtLabelDetails(p, fr) : null;
       return {
         i,
         carrier: isJtParcel(p) ? "J&T EXPRESS" : "FLASH EXPRESS",
-        sc: isJtParcel(p) ? (fr.sortingCode || p.flash_sort_code || "") : p.flash_sort_code || fr.sortCode || "",
-        zone: fr.sortingLineCode || fr.lineCode || "",
+        sc: jt ? jt.sortingCode : p.flash_sort_code || fr.sortCode || "",
+        zone: jt ? jt.lineCode : fr.sortingLineCode || fr.lineCode || "",
+        secondaryCode: jt?.secondaryCode || "",
+        expressType: jt?.expressType || "",
+        orderNo: jt?.orderNo || "",
+        weight: jt?.weight || null,
+        quantity: jt?.quantity || null,
+        remark: jt?.remark || "",
         dst2: fr.dstStoreName || "",
         pno: p.flash_pno || "",
         dist: p.receiver_district || "",
@@ -2106,6 +2114,7 @@ export default function FlashBackend() {
     html += `.label:last-child{margin-bottom:0}`;
     html += `.label-num{position:absolute;top:2px;left:4px;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 6px;border-radius:0 0 4px 0;z-index:2}`;
     html += `.sort-code{text-align:center;padding:2px 8px;font-size:18px;font-weight:900;letter-spacing:1px;border-bottom:1px solid #000}`;
+    html += `.jt-top{display:flex;align-items:center;justify-content:space-between;padding:2px 7px;border-bottom:1px solid #000;font-size:12px;font-weight:900}.jt-top .route{font-size:18px;letter-spacing:.5px}.jt-secondary{font-size:13px;font-weight:900;text-align:center;border-bottom:1px solid #000;padding:2px}.jt-meta{display:flex;justify-content:space-between;gap:5px;border-top:1px solid #000;padding:3px 7px;font-size:9px;font-weight:800}.jt-remark{padding:2px 8px;font-size:9px;font-weight:700}`;
     html += `.bc-wrap{text-align:center;padding:2px 15px 0;border-bottom:1.5px solid #000}`;
     html += `.bc-wrap svg{width:92%;height:45px}`;
     html += `.pno-row{font-size:12px;font-weight:900;text-align:center;letter-spacing:1.5px;padding:2px 0;border-bottom:1.5px solid #000;background:#f8f8f8}`;
@@ -2146,14 +2155,17 @@ export default function FlashBackend() {
     targets.forEach((p, idx) => {
       let response = p.flash_api_response || {};
       if (typeof response === "string") { try { response = JSON.parse(response); } catch { response = {}; } }
-      const sc = escapeHtml(isJtParcel(p) ? (response.sortingCode || p.flash_sort_code || "") : p.flash_sort_code || "");
+      const jt = isJtParcel(p) ? jtLabelDetails(p, response) : null;
+      const sc = escapeHtml(jt ? jt.sortingCode : p.flash_sort_code || "");
       const pno = escapeHtml(p.flash_pno || "");
       const codVal = Number(p.cod_amount || 0);
       html += `<div class="label" id="lbl${idx}">`;
       html += `<div class="label-num no-print">${idx + 1}</div>`;
-      html += `<div class="sort-code">${isJtParcel(p) ? sc || "J&T EXPRESS" : sc || "FLASH EXPRESS"}</div>`;
+      if (jt) html += `<div class="jt-top"><span>J&T EXPRESS</span><span class="route">${sc}</span><span>${escapeHtml(jt.expressType)}</span></div>`;
+      else html += `<div class="sort-code">${sc || "FLASH EXPRESS"}</div>`;
       html += `<div class="bc-wrap"><svg id="bc${idx}"></svg></div>`;
       html += `<div class="pno-row">${pno}</div>`;
+      if (jt?.secondaryCode) html += `<div class="jt-secondary">${escapeHtml(jt.secondaryCode)}</div>`;
       html += `<div class="dst-bar">DST &nbsp; ${escapeHtml(p.receiver_district)} — ${escapeHtml(p.receiver_province)}</div>`;
       html += `<div class="body-area">`;
       html += `<div class="src-line">ผู้ส่ง ${escapeHtml(p.sender_name)} ${escapeHtml(p.sender_phone)} ${escapeHtml(p.sender_address)}</div>`;
@@ -2170,6 +2182,10 @@ export default function FlashBackend() {
       }
       html += `</div>`;
       html += `<div class="dst-item" style="font-size:15px;color:#000;font-weight:800;padding:2px 8px;line-height:1.2">📦 สินค้า: ${escapeHtml(p.item_desc || p.remark || "-")}</div>`;
+      if (jt) {
+        html += `<div class="jt-meta"><span>No. ${escapeHtml(jt.orderNo)}</span><span>${jt.weight === null ? "" : `W:${escapeHtml(jt.weight)}KG`}</span><span>${jt.quantity === null ? "" : `จำนวน ${escapeHtml(jt.quantity)}`}</span></div>`;
+        if (jt.remark) html += `<div class="jt-remark">หมายเหตุ: ${escapeHtml(jt.remark)}</div>`;
+      }
       html += `<div class="foot"><span>Print-: ${now}</span><span>${idx + 1}/${total}</span><span>THE MT</span></div>`;
       html += `</div>`;
     });
@@ -2189,7 +2205,7 @@ export default function FlashBackend() {
     html += `function printSelected(){window.print();}`;
     html += `function cut(ctx,t,max){t=t||"";if(ctx.measureText(t).width<=max)return t;while(t.length&&ctx.measureText(t+"…").width>max)t=t.slice(0,-1);return t+"…";}`;
     html += `function drawLbl(ctx,d,idx,total,W,H,now){ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.strokeStyle="#000";ctx.lineWidth=4;ctx.strokeRect(2,2,W-4,H-4);ctx.lineWidth=2;ctx.fillStyle="#000";ctx.textBaseline="alphabetic";`;
-    html += `ctx.textAlign="left";if(d.carrier==="J&T EXPRESS"){ctx.font="900 48px Arial";ctx.fillText("J&T EXPRESS",18,60);if(d.sc){ctx.font="900 42px Arial";ctx.fillText(cut(ctx,String(d.sc),550),410,60);}}else{ctx.font="italic 900 40px Arial";ctx.fillText("FLASH",18,56);ctx.font="900 14px Arial";ctx.fillText("EXPRESS",150,56);var sc=String(d.sc||"").split("-");var pre=sc[0]||"",mid=sc[1]||"",suf=sc.slice(2).join("-");var sx=320,sy=60;ctx.textAlign="left";ctx.fillStyle="#000";ctx.font="900 38px Arial";ctx.fillText(pre,sx,sy);sx+=ctx.measureText(pre).width+10;ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+12;ctx.font="900 64px Arial";ctx.fillText(mid,sx,sy+2);sx+=ctx.measureText(mid).width+12;ctx.font="900 38px Arial";ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+10;ctx.fillText(suf,sx,sy);}`;
+    html += `ctx.textAlign="left";if(d.carrier==="J&T EXPRESS"){ctx.font="900 42px Arial";ctx.fillText("J&T EXPRESS",18,60);if(d.sc){ctx.font="900 45px Arial";ctx.fillText(cut(ctx,String(d.sc),490),400,60);}ctx.textAlign="right";ctx.font="900 48px Arial";ctx.fillText(d.expressType||"",W-18,60);ctx.textAlign="left";}else{ctx.font="italic 900 40px Arial";ctx.fillText("FLASH",18,56);ctx.font="900 14px Arial";ctx.fillText("EXPRESS",150,56);var sc=String(d.sc||"").split("-");var pre=sc[0]||"",mid=sc[1]||"",suf=sc.slice(2).join("-");var sx=320,sy=60;ctx.textAlign="left";ctx.fillStyle="#000";ctx.font="900 38px Arial";ctx.fillText(pre,sx,sy);sx+=ctx.measureText(pre).width+10;ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+12;ctx.font="900 64px Arial";ctx.fillText(mid,sx,sy+2);sx+=ctx.measureText(mid).width+12;ctx.font="900 38px Arial";ctx.fillText("-",sx,sy);sx+=ctx.measureText("-").width+10;ctx.fillText(suf,sx,sy);}`;
     html += `ctx.beginPath();ctx.moveTo(0,88);ctx.lineTo(W,88);ctx.stroke();`;
     html += `try{var bcv=document.createElement("canvas");JsBarcode(bcv,d.pno||" ",{format:"CODE128",width:2,height:80,displayValue:false,margin:0});ctx.drawImage(bcv,60,96,W-120,98);}catch(e){}ctx.beginPath();ctx.moveTo(0,200);ctx.lineTo(W,200);ctx.stroke();`;
     html += `ctx.fillStyle="#f6f6f6";ctx.fillRect(2,200,W-4,46);ctx.fillStyle="#000";ctx.textAlign="center";ctx.font="900 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.pno||"",W/2,234);ctx.beginPath();ctx.moveTo(0,246);ctx.lineTo(W,246);ctx.stroke();`;
@@ -2198,7 +2214,8 @@ export default function FlashBackend() {
     html += `ctx.fillStyle="#333";ctx.textAlign="left";ctx.font="16px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"ผู้ส่ง "+(d.sname||"")+" ("+(d.sphone||"")+")",660),20,322);ctx.fillStyle="#666";ctx.font="15px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.saddr,660),20,346);`;
     html += `ctx.fillStyle="#000";ctx.font="800 25px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"ผู้รับ "+(d.rname||""),660),20,392);ctx.font="900 32px 'Sarabun',Tahoma,sans-serif";ctx.fillText(d.rphone||"",20,430);ctx.font="700 22px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,d.raddr1,660),20,464);ctx.fillText(cut(ctx,d.raddr2,660),20,492);ctx.fillText(cut(ctx,d.raddr3,660),20,520);`;
     html += `if(d.cod>0){ctx.fillStyle="#000";ctx.fillRect(20,585,108,46);ctx.fillStyle="#fff";ctx.textAlign="left";ctx.font="900 24px 'Sarabun',Tahoma,sans-serif";ctx.fillText("COD",36,617);ctx.fillStyle="#000";ctx.font="900 26px 'Sarabun',Tahoma,sans-serif";ctx.fillText("เก็บเงิน COD "+Number(d.cod).toLocaleString(),142,617);}`;
-    html += `if(d.item){ctx.fillStyle="#000";ctx.textAlign="left";ctx.font="800 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"สินค้า: "+d.item,660),20,675);}`;
+    html += `if(d.item){ctx.fillStyle="#000";ctx.textAlign="left";ctx.font="800 30px 'Sarabun',Tahoma,sans-serif";ctx.fillText(cut(ctx,"สินค้า: "+d.item,660),20,d.carrier==="J&T EXPRESS"?660:675);}`;
+    html += `if(d.carrier==="J&T EXPRESS"){ctx.fillStyle="#000";ctx.textAlign="left";ctx.font="800 20px 'Sarabun',Tahoma,sans-serif";var meta="No. "+(d.orderNo||"")+(d.weight?"   W:"+d.weight+"KG":"")+(d.quantity?"   จำนวน "+d.quantity:"")+(d.secondaryCode?"   "+d.secondaryCode:"")+(d.remark?"   หมายเหตุ: "+d.remark:"");ctx.fillText(cut(ctx,meta,960),20,692);}`;
     html += `try{var q=qrcode(0,"M");q.addData(d.pno||" ");q.make();var n=q.getModuleCount();var qs=172,qx=W-198,qy=508,cell=qs/n;ctx.fillStyle="#000";for(var r=0;r<n;r++)for(var c=0;c<n;c++)if(q.isDark(r,c))ctx.fillRect(qx+c*cell,qy+r*cell,Math.ceil(cell),Math.ceil(cell));}catch(e){}`;
     html += `ctx.beginPath();ctx.moveTo(0,705);ctx.lineTo(W,705);ctx.stroke();ctx.fillStyle="#777";ctx.font="14px 'Sarabun',Tahoma,sans-serif";ctx.textAlign="left";ctx.fillText(now+"  พิมพ์ครั้งที่: 1",16,730);ctx.textAlign="center";ctx.fillText((idx+1)+"/"+total,W/2,730);ctx.textAlign="right";ctx.fillText("THE MT",W-16,730);ctx.textAlign="left";}`;
     html += `async function downloadOurLabels(){var btn=document.querySelector(".btn-dl");var sel=LBLS.filter(function(x){var el=document.getElementById("lbl"+x.i);return el&&!el.classList.contains("hide-print");});if(!sel.length){alert("ไม่มีใบที่เลือก");return;}if(typeof jspdf==="undefined"||typeof JsBarcode==="undefined"||typeof qrcode==="undefined"){alert("กำลังโหลดไลบรารี ลองใหม่อีกครั้ง");return;}btn.disabled=true;var origin=btn.innerHTML;try{if(document.fonts&&document.fonts.ready){await document.fonts.ready;}}catch(e){}try{var W=1000,H=750;var pdf=new jspdf.jsPDF({orientation:"landscape",unit:"mm",format:[100,75]});var cv=document.createElement("canvas");cv.width=W;cv.height=H;var ctx=cv.getContext("2d");for(var idx=0;idx<sel.length;idx++){if(idx>0)pdf.addPage([100,75],"landscape");drawLbl(ctx,sel[idx],idx,sel.length,W,H,PNOW);var img=cv.toDataURL("image/jpeg",0.9);pdf.addImage(img,"JPEG",0,0,100,75);btn.innerHTML="⏳ "+(idx+1)+"/"+sel.length;if(idx%10===9)await new Promise(function(r){setTimeout(r,0);});}pdf.save((sel.some(function(x){return x.carrier==="J&T EXPRESS";})?"jnt":"flash")+"-labels-"+sel.length+".pdf");btn.innerHTML="✅ ดาวน์โหลดแล้ว "+sel.length+" ใบ";setTimeout(function(){btn.innerHTML=origin;btn.disabled=false;},3000);}catch(e){alert("ผิดพลาด: "+e.message);btn.disabled=false;btn.innerHTML=origin;}}`;
