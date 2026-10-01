@@ -3,6 +3,9 @@ main = "cloudflare-worker.js"
 compatibility_date = "2026-06-02"
 preview_urls = false
 
+[vars]
+JT_API_BASE = "https://ylopenapi.jtexpress.co.th"
+
 [[kv_namespaces]]
 binding = "JT_TRACKING_INBOX"
 id = "f8e8114ff2544335ac731b4d7f7b0d38"

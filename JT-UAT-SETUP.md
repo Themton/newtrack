@@ -1,44 +1,20 @@
-# J&T UAT setup
+# J&T EXPRESS production setup
 
-ตั้งค่า Secrets ใน Cloudflare Worker `newtrack-proxy`:
+J&T uses separate credentials for `VIP8530310123` and `VIP8530310124`. Store each account's `API_ACCOUNT`, `PRIVATE_KEY`, and 32-character business password in Cloudflare Worker secrets (`JT_23_*` and `JT_24_*`). The business password must come from J&T Signature Tools for that VIP; do not derive it from an assumed salt. Keep `JT_ACCESS_TOKEN` in the Worker too. Never commit credentials or customer passwords.
 
-```bash
-npx wrangler secret put JT_API_ACCOUNT
-npx wrangler secret put JT_PRIVATE_KEY
-npx wrangler secret put JT_BUSINESS_PASSWORD
-npx wrangler secret put JT_CUSTOMER_CODE
-npx wrangler secret put JT_ACCESS_TOKEN
-```
+The Worker configuration sets `JT_API_BASE` to `https://ylopenapi.jtexpress.co.th`. The browser must send `environment: "production"` for order creation, cancellation, and label printing; the Worker rejects older UAT clients before calling J&T. Verify `GET /` returns `jntEnvironment: "production"` after deployment. Do not use production credentials against the sandbox API.
 
-ใช้ endpoint `/jt-api/create`, `/jt-api/cancel` และ `/jt-api/label` จาก frontend ผ่าน Worker เท่านั้น
+New J&T parcels use `source=jnt`. Existing `source=jnt_uat` parcels remain marked as test data and cannot be used for production J&T calls. Both sources are excluded from Flash sync, Flash pickup reports, and Flash public tracking. New J&T parcels must be tied to an active J&T shop with the correct `jt_app` VIP. No Supabase schema migration is needed if `fx_parcels.source` and `fx_shops.jt_app` already exist.
 
-ใส่ `--config ./wrangler.toml` ในทุกคำสั่ง Wrangler เพื่อเลือก Worker `newtrack-proxy` ให้ถูกต้อง
+Read-only production authentication was confirmed for both VIPs using J&T tracking queries with nonexistent order IDs. This does **not** prove successful live order creation or label printing. Test one real parcel with the user's intended sender, receiver, and consent, then verify the returned waybill, saved database row, PDF label, and J&T tracking. Never create a fake production order for a smoke test.
 
-`JT_BUSINESS_PASSWORD` คือ MD5(rawPassword + "jadada236t2") เป็น hex ตัวพิมพ์ใหญ่ 32 ตัว
-`JT_ACCESS_TOKEN` คือรหัสเข้าใช้งาน UAT ที่ตั้งเอง ใช้กรอกช่อง J&T UAT หลังล็อกอินเว็บ เก็บเฉพาะในหน่วยความจำจนออกจากระบบ/รีโหลด ไม่ใช่ privateKey ของ J&T
+Deployment order: publish the Worker with production base and request guard, confirm `GET /`, then publish the frontend. An old frontend cannot create, cancel, or print production J&T orders. Keep the Flash credentials and logic unchanged. J&T tracking push and public tracking are not enabled by this change; do not present Flash tracking data as J&T tracking.
 
-## วิธีใช้งาน
-
-1. บันทึกข้อมูลพัสดุให้ครบ รวมอำเภอผู้ส่ง ที่อยู่และไปรษณีย์ น้ำหนัก และ COD
-2. กรอกรหัสเข้าใช้งาน UAT ในหน้ารายการพัสดุ
-3. กด J&T UAT ในแถวที่ยังไม่มีเลขพัสดุ ระบบขอยืนยันแล้วสร้างเลขทดสอบ
-4. กดใบปะหน้า J&T เพื่อดาวน์โหลด PDF เลือกขนาดจากแถบ UAT ได้ 5 ขนาด
-5. กดยกเลิกในแถวนั้น ระบบยกเลิก J&T ก่อนปรับสถานะในฐานข้อมูล
-6. การปริ้น/ยกเลิกแบบเลือกหลายรายการแยกไป J&T หรือ Flash ตามรายการ
-
-ชุด UAT นี้บันทึก `source=jnt_uat` และใช้คอลัมน์เลขพัสดุเดิมเพื่อรองรับหน้าระบบปัจจุบัน ไม่ต้องรัน migration ใหม่ รายการทดสอบถูกกันออกจาก cron/การค้นหาสาธารณะ/คิว Flash ห้ามใช้ใบปะหน้า UAT ส่งพัสดุจริง
-
-ถ้าสร้างเลขสำเร็จแต่บันทึก Supabase ไม่สำเร็จ ระบบเก็บผลที่ได้ใน localStorage ของเครื่องนี้ กดสร้างซ้ำที่รายการเดิมเพื่อบันทึกผลเดิมโดยไม่สร้างออเดอร์ใหม่
-
-## ตรวจสอบและ deploy
+Local checks:
 
 ```bash
+node --test tests/jnt-routing.test.js
 node jt-worker.test.mjs
 npm run build
 npx wrangler deploy --dry-run --config ./wrangler.toml
-npx wrangler deploy --keep-vars --config ./wrangler.toml
 ```
-
-ชุดทดสอบจำลองตรวจ headers, MD5 binary/Base64, สิทธิ์เข้าใช้, สร้าง/ยกเลิก/PDF โดยไม่ส่งข้อมูลไป J&T ผลนี้ยังไม่ใช่ผล UAT จริง และตามเจ้าหน้าที่ J&T ต้องผ่านการทดสอบในหน้า API Doc ก่อน approve production
-
-ยังไม่เปิด production หรือ webhook/การซิงก์สถานะ J&T เพราะยังไม่มีผลทดสอบและเอกสารสถานะที่ยืนยันสำหรับบัญชีนี้ โมดูล J&T และ migration ที่มีอยู่บน main ถูกเก็บไว้สำหรับการต่อยอด ไม่ได้เปิด webhook จากตัวอย่างโดยอัตโนมัติ

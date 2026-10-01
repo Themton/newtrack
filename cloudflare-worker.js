@@ -25,7 +25,7 @@ const FLASH_ACCOUNTS = ENV === "training"
 // บัญชีเริ่มต้น (ใช้เมื่อ request ไม่ได้ระบุ mchId)
 const DEFAULT_MCH = ENV === "training" ? "CA5610" : "CBC9351";
 
-// J&T Open Platform (UAT). Keep all values in Worker Secrets; never put them in App.jsx.
+// J&T Open Platform. Keep credentials in Worker Secrets; never put them in App.jsx.
 
 function md5(input) {
   const bytes = new TextEncoder().encode(input);
@@ -233,7 +233,7 @@ async function syncFlash() {
     const staleBefore = new Date(Date.now() - STALE_MIN * 60000).toISOString();
     parcels = await sbQuery(
       "fx_parcels?select=id,flash_pno,flash_status,flash_detail,status,shop_id" +
-      "&or=(source.is.null,source.neq.jnt_uat)" +
+      "&or=(source.is.null,source.not.in.(jnt,jnt_uat))" +
       "&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled" +
       "&and=(or(flash_status.is.null,flash_status.not.in.(เซ็นรับแล้ว,คืนสำเร็จ)),or(flash_checked_at.is.null,flash_checked_at.lt." + staleBefore + "))" +
       "&order=flash_checked_at.asc.nullsfirst" +
@@ -343,9 +343,10 @@ export default {
       if (Number(req.headers.get("Content-Length") || 0) > 32768) return json({ msg: "Request too large" }, 413);
     }
 
-    if (url.pathname === "/") return json({ status: "ok", version: "v3.5", features: ["flash-proxy", "jnt-uat-create-order", "jnt-cancel", "jnt-label", "supabase-proxy", "auto-sync"] });
+    if (url.pathname === "/") return json({ status: "ok", version: "v3.6", jntEnvironment: env.JT_API_BASE === "https://ylopenapi.jtexpress.co.th" ? "production" : "sandbox", features: ["flash-proxy", "jnt-create-order", "jnt-cancel", "jnt-label", "supabase-proxy", "auto-sync"] });
     if (url.pathname === "/jt-api/create" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
+      if (env.JT_API_BASE !== "https://ylopenapi.jtexpress.co.th" || body.environment !== "production") return json({ code: 409, msg: "J&T production request or environment is not ready" }, 409);
       if (!body.customerCode || !body.txlogisticId || !body.sender || !body.receiver || !body.packageInfo) return json({ code: 400, msg: "J&T required fields are missing" }, 400);
       for (const party of [body.sender, body.receiver]) {
         if (!["name", "postCode", "mobile", "city", "prov", "address"].every(key => typeof party[key] === "string" && party[key].trim())) return json({ msg: "Sender/receiver address is incomplete" }, 400);
@@ -353,11 +354,14 @@ export default {
       }
       if (!Number.isFinite(Number(body.packageInfo.weight)) || Number(body.packageInfo.weight) <= 0) return json({ msg: "Invalid package weight" }, 400);
       if (body.codInfo && (!Number.isFinite(Number(body.codInfo.codValue)) || Number(body.codInfo.codValue) <= 0)) return json({ msg: "Invalid COD amount" }, 400);
+      delete body.environment;
       try { return json(await jtRequest("/webopenplatformapi/api/order/addOrder", body, env)); } catch { return json({ code: 500, msg: "J&T request failed; check order before retrying" }, 502); }
     }
     if (url.pathname === "/jt-api/cancel" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
+      if (env.JT_API_BASE !== "https://ylopenapi.jtexpress.co.th" || body.environment !== "production") return json({ code: 409, msg: "J&T production request or environment is not ready" }, 409);
       if (!body.customerCode || !body.txlogisticId || !body.reason) return json({ code: 400, msg: "customerCode, txlogisticId and reason are required" }, 400);
+      delete body.environment;
       try { return json(await jtRequest("/webopenplatformapi/api/order/cancelOrder", body, env)); } catch (e) { return json({ code: 500, msg: e.message }, 502); }
     }
     if (url.pathname === "/jt-api/tracking" && req.method === "POST") {
@@ -370,6 +374,7 @@ export default {
     }
     if (url.pathname === "/jt-api/label" && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
+      if (env.JT_API_BASE !== "https://ylopenapi.jtexpress.co.th" || body.environment !== "production") return json({ code: 409, msg: "J&T production request or environment is not ready" }, 409);
       if (!body.customerCode || !body.txlogisticId || !body.billCode) return json({ code: 400, msg: "customerCode, txlogisticId and billCode are required" }, 400);
       try {
         const type = Number(body.type || 1);
@@ -402,7 +407,7 @@ export default {
 
     if (url.pathname === "/status") {
       try {
-        const all = await sbQuery("fx_parcels?select=flash_status,flash_pno&or=(source.is.null,source.neq.jnt_uat)&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled") || [];
+        const all = await sbQuery("fx_parcels?select=flash_status,flash_pno&or=(source.is.null,source.not.in.(jnt,jnt_uat))&flash_pno=neq.&flash_pno=not.is.null&status=neq.cancelled") || [];
         const c = { total: all.length, pending: 0, in_transit: 0, delivered: 0, no_status: 0 };
         all.forEach(p => {
           if (!p.flash_status) c.no_status++;

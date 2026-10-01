@@ -4,6 +4,7 @@ import worker from "../cloudflare-worker.js";
 
 const env = {
   JT_ACCESS_TOKEN: "test-only-token",
+  JT_API_BASE: "https://ylopenapi.jtexpress.co.th",
   JT_23_API_ACCOUNT: "api-23",
   JT_23_PRIVATE_KEY: "key-23",
   JT_23_BUSINESS_PASSWORD: "HASH-23",
@@ -36,7 +37,7 @@ test("J&T routes each VIP to its own Worker secrets", async () => {
     assert.deepEqual(seen.map(s => s.options.headers.apiAccount), ["api-23", "api-24"]);
     assert.deepEqual(seen.map(s => s.body.password), ["HASH-23", "HASH-24"]);
     assert.deepEqual(seen.map(s => s.body.customerCode), ["VIP8530310123", "VIP8530310124"]);
-    assert.ok(seen.every(s => s.url.startsWith("https://demoopenapi.jtexpress.co.th/")));
+    assert.ok(seen.every(s => s.url.startsWith("https://ylopenapi.jtexpress.co.th/")));
   } finally {
     globalThis.fetch = originalFetch;
   }
