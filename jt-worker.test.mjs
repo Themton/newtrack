@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import worker from './cloudflare-worker.js';
 
 const env = {
-  JT_ACCESS_TOKEN: 'test-access',
+  JT_SESSION_SECRET: 'test-only-session-signing-secret',
   JT_API_BASE: 'https://ylopenapi.jtexpress.co.th',
   JT_23_API_ACCOUNT: 'test-account-23', JT_23_PRIVATE_KEY: 'test-key-23', JT_23_BUSINESS_PASSWORD: 'TEST-BUSINESS-23',
   JT_24_API_ACCOUNT: 'test-account-24', JT_24_PRIVATE_KEY: 'test-key-24', JT_24_BUSINESS_PASSWORD: 'TEST-BUSINESS-24',
@@ -11,6 +11,15 @@ const env = {
 const realFetch = globalThis.fetch;
 let calls = 0;
 globalThis.fetch = async (url, options) => {
+  if (new URL(url).hostname.endsWith('.supabase.co')) {
+    const query = new URL(url).searchParams;
+    if (query.has('username')) {
+      const valid = query.get('username') === 'eq.shipping1' && query.get('password') === 'eq.' + createHash('sha256').update('test-password').digest('hex');
+      return Response.json(valid ? [{ id: 'test-user', username: 'shipping1', role: 'shipping', display_name: 'Shipping', avatar_color: '#fff' }] : []);
+    }
+    if (query.has('id')) return Response.json([{ id: 'test-user', role: 'shipping', is_active: true }]);
+    throw new Error('Unexpected Supabase request');
+  }
   calls++;
   assert.equal(new URL(url).hostname, 'ylopenapi.jtexpress.co.th');
   const form = new URLSearchParams(options.body);
@@ -29,11 +38,23 @@ globalThis.fetch = async (url, options) => {
 };
 const party = { name: 'Test', postCode: '10110', mobile: '0800000000', city: 'Test', prov: 'Test', address: 'Test' };
 const payload = { environment: 'production', customerCode: 'VIP8530310123', txlogisticId: 'TEST-ORDER', billCode: 'TEST-AWB', reason: 'test', sender: party, receiver: party, packageInfo: { weight: 1 }, type: 1 };
-const request = (endpoint, auth = true, body = payload) => new Request(`https://example.test/jt-api/${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: 'Bearer test-access' } : {}) }, body: JSON.stringify(body) });
+let session;
+const request = (endpoint, auth = true, body = payload) => new Request(`https://example.test/jt-api/${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: 'Bearer ' + session } : {}) }, body: JSON.stringify(body) });
 try {
+  const login = body => worker.fetch(new Request('https://example.test/auth/jt-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env);
+  assert.equal((await login({ username: 'shipping1', password: 'wrong' })).status, 401);
+  const auth = await login({ username: 'shipping1', password: 'test-password' });
+  assert.equal(auth.status, 200);
+  const credentials = await auth.json();
+  assert.equal(credentials.user.role, 'shipping');
+  assert.equal(credentials.user.password, undefined);
+  session = credentials.session;
+  assert.ok(session);
   assert.equal((await worker.fetch(request('create', false), env)).status, 401);
   assert.equal(calls, 0);
   assert.equal((await worker.fetch(request('create'), {})).status, 503);
+  const stale = new Request('https://example.test/jt-api/create', { method: 'POST', headers: { Authorization: 'Bearer old-shared-code' }, body: JSON.stringify(payload) });
+  assert.equal((await worker.fetch(stale, env)).status, 401);
   assert.equal((await worker.fetch(request('create', true, { ...payload, environment: undefined }), env)).status, 409);
   assert.equal((await worker.fetch(request('create'), { ...env, JT_API_BASE: 'https://demoopenapi.jtexpress.co.th' })).status, 409);
   assert.equal(calls, 0);

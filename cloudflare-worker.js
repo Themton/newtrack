@@ -4,6 +4,30 @@
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
 const SB_KEY ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxudnlhZnR1bXl3aWNndG90b3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNzE1NjcsImV4cCI6MjA5NTk0NzU2N30.Ymj0QMrzkFZz1QmCqbL0P5lsFmFQzswkbvsLEh3SbB4";
 
+// Short-lived J&T permission, signed only by this Worker. Never send the signing secret to the browser.
+const sessionBytes = value => new TextEncoder().encode(value);
+const sessionBase64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const sessionKey = secret => crypto.subtle.importKey("raw", sessionBytes(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+async function issueJtSession(user, secret) {
+  const payload = sessionBase64(sessionBytes(JSON.stringify({ id: user.id, role: user.role, exp: Math.floor(Date.now() / 1000) + 8 * 3600 })));
+  const signature = await crypto.subtle.sign("HMAC", await sessionKey(secret), sessionBytes(payload));
+  return payload + "." + sessionBase64(new Uint8Array(signature));
+}
+async function verifyJtSession(token, secret) {
+  if (!secret || !token || token.length > 2048) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2 || !parts.every(part => /^[A-Za-z0-9_-]+$/.test(part))) return null;
+  try {
+    const signature = Uint8Array.from(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0));
+    if (!await crypto.subtle.verify("HMAC", await sessionKey(secret), signature, sessionBytes(parts[0]))) return null;
+    const claims = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(parts[0].replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
+    if (!claims.id || !Number.isSafeInteger(claims.exp) || claims.exp <= Math.floor(Date.now() / 1000)) return null;
+    const users = await sbQuery(`fx_users?select=id,role,is_active&id=eq.${encodeURIComponent(claims.id)}&limit=1`);
+    const user = users?.[0];
+    return user?.is_active && user.role === claims.role ? user : null;
+  } catch { return null; }
+}
+
 // ─────────────────────────────────────────────────────────────
 //  สลับสภาพแวดล้อมที่นี่ที่เดียว:  "production"  หรือ  "training"
 // ─────────────────────────────────────────────────────────────
@@ -331,15 +355,30 @@ export default {
     const callback = url.pathname.match(/^\/jt-callback\/uat\/(VIP853031012[34])$/);
     if (callback) return jtCallback(req, env, callback[1]);
 
+    if (url.pathname === "/auth/jt-login" && req.method === "POST") {
+      if (!env.JT_SESSION_SECRET) return json({ msg: "J&T login is not configured" }, 503);
+      let credentials;
+      try { credentials = JSON.parse(await boundedText(req, 2048)); } catch { return json({ msg: "Invalid login request" }, 400); }
+      const { username, password } = credentials || {};
+      if (typeof username !== "string" || !/^[A-Za-z0-9_]{1,64}$/.test(username) || typeof password !== "string" || !password || password.length > 256) return json({ msg: "Invalid login request" }, 400);
+      try {
+        const digest = await crypto.subtle.digest("SHA-256", sessionBytes(password));
+        const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+        const users = await sbQuery(`fx_users?select=id,username,display_name,role,avatar_color&username=eq.${encodeURIComponent(username)}&password=eq.${hash}&is_active=eq.true&limit=1`);
+        if (!users?.length) return json({ msg: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" }, 401);
+        const user = users[0];
+        if (!["admin", "shipping", "accounting", "tracking"].includes(user.role)) return json({ msg: "ไม่มีสิทธิ์เข้าใช้งาน" }, 403);
+        return json({ user, session: await issueJtSession(user, env.JT_SESSION_SECRET) });
+      } catch { return json({ msg: "ตรวจสอบการเข้าสู่ระบบไม่ได้" }, 503); }
+    }
+
     if (url.pathname.startsWith("/jt-api/")) {
-      if (!env.JT_ACCESS_TOKEN) return json({ msg: "J&T access is not configured" }, 503);
+      if (!env.JT_SESSION_SECRET) return json({ msg: "J&T access is not configured" }, 503);
       const supplied = req.headers.get("Authorization") || "";
-      const enc = new TextEncoder();
-      const [actual, expected] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(supplied)), crypto.subtle.digest("SHA-256", enc.encode("Bearer " + env.JT_ACCESS_TOKEN))]);
-      let difference = 0;
-      const a = new Uint8Array(actual), b = new Uint8Array(expected);
-      for (let i = 0; i < a.length; i++) difference |= a[i] ^ b[i];
-      if (difference) return json({ msg: "J&T access denied" }, 401);
+      const user = supplied.startsWith("Bearer ") ? await verifyJtSession(supplied.slice(7), env.JT_SESSION_SECRET) : null;
+      if (!user) return json({ msg: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง" }, 401);
+      if (["/jt-api/create", "/jt-api/cancel"].includes(url.pathname) && !["admin", "shipping"].includes(user.role)) return json({ msg: "ไม่มีสิทธิ์สร้างหรือยกเลิกเลข J&T" }, 403);
+      if (url.pathname === "/jt-api/label" && !["admin", "shipping", "accounting"].includes(user.role)) return json({ msg: "ไม่มีสิทธิ์พิมพ์ใบปะหน้า J&T" }, 403);
       if (Number(req.headers.get("Content-Length") || 0) > 32768) return json({ msg: "Request too large" }, 413);
     }
 
