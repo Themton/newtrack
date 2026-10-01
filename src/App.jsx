@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ADDR_DB, { PROVINCES } from "./addr.js";
+import { shopSenderLocation } from "./shopSenderLocation.js";
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
@@ -46,6 +47,7 @@ const CARRIERS = [
 const JNT_APPS = ["VIP8530310123", "VIP8530310124"];
 const isJtParcel = p => p?.source === "jnt" || p?.source === "jnt_uat";
 const parcelCarrier = p => isJtParcel(p) ? "jnt" : p.flash_pno ? "flash" : "";
+
 
 // J&T Open Platform — credentials stay in the Worker, never in the browser.
 const jtApi = {
@@ -730,14 +732,14 @@ function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) 
     if (!isEdit && shops?.length) {
       const matching = shops.filter(s => s.is_active && (s.carrier === carrier || (carrier === "flash" && !s.carrier)) && (carrier !== "jnt" || JNT_APPS.includes(s.jt_app)));
       const def = matching.find(s => s.is_default) || matching[0];
-      if (def) setForm(f => ({ ...f, sender_name: def.name || "", sender_phone: def.phone || "", sender_address: def.address || "", sender_province: def.province || "", sender_postal: def.postal || "", sender_district: def.district || "", sender_subdistrict: def.subdistrict || "", shop_id: def.id }));
+      if (def) { const location = shopSenderLocation(def); setForm(f => ({ ...f, sender_name: def.name || "", sender_phone: def.phone || "", sender_address: def.address || "", sender_province: def.province || "", sender_postal: def.postal || "", sender_district: location.district, sender_subdistrict: location.subdistrict, shop_id: def.id })); }
     }
   }, [isEdit, shops, carrier]);
 
   const availableShops = (shops || []).filter(s => s.is_active && (s.carrier === carrier || (carrier === "flash" && !s.carrier)) && (carrier !== "jnt" || JNT_APPS.includes(s.jt_app)));
   const selectShop = (shopId) => {
     const shop = shops?.find(s => s.id === shopId);
-    if (shop) setForm(f => ({ ...f, sender_name: shop.name || "", sender_phone: shop.phone || "", sender_address: shop.address || "", sender_province: shop.province || "", sender_postal: shop.postal || "", sender_district: shop.district || "", sender_subdistrict: shop.subdistrict || "", shop_id: shop.id }));
+    if (shop) { const location = shopSenderLocation(shop); setForm(f => ({ ...f, sender_name: shop.name || "", sender_phone: shop.phone || "", sender_address: shop.address || "", sender_province: shop.province || "", sender_postal: shop.postal || "", sender_district: location.district, sender_subdistrict: location.subdistrict, shop_id: shop.id })); }
   };
 
   const handleParseAddress = () => {
@@ -1000,8 +1002,8 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
           parcel_no: generateParcelNo(),
           status: "draft",
           sender_name: shop?.name || "", sender_phone: shop?.phone || "", sender_address: shop?.address || "",
-          sender_province: shop?.province || "", sender_district: shop?.district || "",
-          sender_subdistrict: shop?.subdistrict || "", sender_postal: shop?.postal || "",
+          sender_province: shop?.province || "", sender_district: shopSenderLocation(shop).district,
+          sender_subdistrict: shopSenderLocation(shop).subdistrict, sender_postal: shop?.postal || "",
           receiver_name: r.receiver_name, receiver_phone: r.receiver_phone, receiver_address: r.receiver_address || "-",
           receiver_subdistrict: r.receiver_subdistrict, receiver_district: r.receiver_district,
           receiver_province: r.receiver_province || "", receiver_postal: r.receiver_postal,
@@ -1792,12 +1794,14 @@ export default function FlashBackend() {
     if (p.source !== "jnt") throw new Error("กรุณาสร้างรายการ J&T production ใหม่ก่อนขอเลขพัสดุ");
     const shop = shops.find(s => s.id === p.shop_id && s.is_active && s.carrier === "jnt" && JNT_APPS.includes(s.jt_app));
     if (!shop) throw new Error("รายการนี้ยังไม่ได้ผูกร้าน J&T กับบัญชี VIP");
+    const location = shopSenderLocation(shop);
+    const orderParcel = { ...p, sender_district: p.sender_district || location.district, sender_subdistrict: p.sender_subdistrict || location.subdistrict };
     const pendingKey = "jnt-production-pending-" + p.id;
     const pending = localStorage.getItem(pendingKey);
-    const result = pending ? JSON.parse(pending) : await jtApi.createOrder(p, { customerCode: shop.jt_app });
+    const result = pending ? JSON.parse(pending) : await jtApi.createOrder(orderParcel, { customerCode: shop.jt_app });
     if (!result.data?.billCode) throw new Error("J&T ไม่ส่งเลขพัสดุกลับมา");
     localStorage.setItem(pendingKey, JSON.stringify(result));
-    const updates = { source: "jnt", flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: { ...result.data, customerCode: shop.jt_app }, status: "created" };
+    const updates = { source: "jnt", sender_district: orderParcel.sender_district, sender_subdistrict: orderParcel.sender_subdistrict, flash_pno: result.data.billCode, flash_sort_code: result.data.sortingCode || "", flash_api_response: { ...result.data, customerCode: shop.jt_app }, status: "created" };
     await sb.update("fx_parcels", p.id, updates);
     localStorage.removeItem(pendingKey);
     setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
@@ -4161,8 +4165,8 @@ export default function FlashBackend() {
           parcel_no: "P" + Date.now().toString(36).toUpperCase(),
           status: "draft",
           sender_name: shop?.name || "", sender_phone: shop?.phone || "", sender_address: shop?.address || "",
-          sender_province: shop?.province || "", sender_district: shop?.district || "",
-          sender_subdistrict: shop?.subdistrict || "", sender_postal: shop?.postal || "",
+          sender_province: shop?.province || "", sender_district: shopSenderLocation(shop).district,
+          sender_subdistrict: shopSenderLocation(shop).subdistrict, sender_postal: shop?.postal || "",
           receiver_name: item.receiver_name, receiver_phone: item.receiver_phone,
           receiver_address: item.receiver_address || "-",
           receiver_subdistrict: item.receiver_subdistrict || "",
