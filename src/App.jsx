@@ -708,6 +708,13 @@ function parseThaiAddress(raw) {
 // ═══════════════════════════════════════════════════════════════
 // PARCEL FORM — with Shop selector + Address parser
 // ═══════════════════════════════════════════════════════════════
+function ParcelField({ label, field, placeholder, type = "text", span, disabled, value, onChange }) {
+  const inputStyle = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
+  return <div style={{ gridColumn: span ? `span ${span}` : undefined }}>
+    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>{label}</label>
+    <input type={type} value={value ?? ""} onChange={e => onChange(field, type === "number" ? +e.target.value : e.target.value)} placeholder={placeholder} disabled={disabled} style={{ ...inputStyle, ...(disabled ? { background: "#f1f5f9", color: "#94a3b8", cursor: "not-allowed" } : {}) }} />
+  </div>;
+}
 function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) {
   const isEdit = !!parcel?.id;
   const locked = isEdit && !!parcel?.flash_pno; // สร้างเลขพัสดุแล้ว → ห้ามแก้ที่อยู่ + COD
@@ -757,7 +764,7 @@ try { const d = { ...form, carrier }; if (carrier === "flash") delete d.carrier;
   };
   const I = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit" };
   const L = { display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 };
-  const F = ({ label, k, ph, type = "text", span, disabled }) => <div style={{ gridColumn: span ? `span ${span}` : undefined }}><label style={L}>{label}</label><input type={type} value={form[k] || ""} onChange={e => set(k, type === "number" ? +e.target.value : e.target.value)} placeholder={ph} disabled={disabled} style={{ ...I, ...(disabled ? { background: "#f1f5f9", color: "#94a3b8", cursor: "not-allowed" } : {}) }} /></div>;
+  const field = (name, label, placeholder, options = {}) => <ParcelField field={name} label={label} placeholder={placeholder} value={form[name]} onChange={set} {...options} />;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 30, overflowY: "auto" }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: "95%", maxWidth: 680, marginBottom: 40, overflow: "hidden" }}>
@@ -784,12 +791,12 @@ try { const d = { ...form, carrier }; if (carrier === "flash") delete d.carrier;
             )}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-            <F label="ชื่อ" k="sender_name" ph="ร้าน" /><F label="เบอร์" k="sender_phone" ph="08X..." />
-            <F label="ที่อยู่" k="sender_address" ph="ที่อยู่" span={2} />
+            {field("sender_name", "ชื่อ", "ร้าน")}{field("sender_phone", "เบอร์", "08X...")}
+            {field("sender_address", "ที่อยู่", "ที่อยู่", { span: 2 })}
             <div><label style={L}>จังหวัด</label><select value={form.sender_province || ""} onChange={e => set("sender_province", e.target.value)} style={{ ...I, background: "#fff" }}><option value="">--</option>{PROVINCES.map(p => <option key={p}>{p}</option>)}</select></div>
-            <F label="ไปรษณีย์" k="sender_postal" ph="XXXXX" />
-            <F label="อำเภอ/เขตผู้ส่ง (J&T)" k="sender_district" ph="อำเภอ/เขต" disabled={locked} />
-            <F label="ตำบล/แขวงผู้ส่ง" k="sender_subdistrict" ph="ตำบล/แขวง" disabled={locked} />
+            {field("sender_postal", "ไปรษณีย์", "XXXXX")}
+            {field("sender_district", "อำเภอ/เขตผู้ส่ง (J&T)", "อำเภอ/เขต", { disabled: locked })}
+            {field("sender_subdistrict", "ตำบล/แขวงผู้ส่ง", "ตำบล/แขวง", { disabled: locked })}
           </div>
 
           {/* ═══ ผู้รับ + ปุ่มวางที่อยู่ ═══ */}
@@ -809,8 +816,8 @@ try { const d = { ...form, carrier }; if (carrier === "flash") delete d.carrier;
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-            <F label="ชื่อ *" k="receiver_name" ph="ชื่อ" /><F label="เบอร์ *" k="receiver_phone" ph="08X..." />
-            <F label="ที่อยู่" k="receiver_address" ph="ที่อยู่" span={2} disabled={locked} />
+            {field("receiver_name", "ชื่อ *", "ชื่อ")}{field("receiver_phone", "เบอร์ *", "08X...")}
+            {field("receiver_address", "ที่อยู่", "ที่อยู่", { span: 2, disabled: locked })}
             <div style={{ gridColumn: "span 2" }}>
               <label style={L}>รหัสไปรษณีย์ (พิมพ์แล้วเติมที่อยู่อัตโนมัติ)</label>
               <input value={form.receiver_postal || ""} disabled={locked} onChange={e => {
@@ -835,25 +842,25 @@ try { const d = { ...form, carrier }; if (carrier === "flash") delete d.carrier;
                 </div>
               )}
             </div>
-            <F label="ตำบล" k="receiver_subdistrict" ph="ตำบล" disabled={locked} /><F label="อำเภอ" k="receiver_district" ph="อำเภอ" disabled={locked} />
+            {field("receiver_subdistrict", "ตำบล", "ตำบล", { disabled: locked })}{field("receiver_district", "อำเภอ", "อำเภอ", { disabled: locked })}
             <div><label style={L}>จังหวัด</label><select value={form.receiver_province || ""} disabled={locked} onChange={e => set("receiver_province", e.target.value)} style={{ ...I, background: locked ? "#f1f5f9" : "#fff", ...(locked ? { color: "#94a3b8", cursor: "not-allowed" } : {}) }}><option value="">--</option>{PROVINCES.map(p => <option key={p}>{p}</option>)}</select></div>
           </div>
           <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700 }}>📦 พัสดุ</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
-            <F label="น้ำหนัก (kg)" k="weight" type="number" /><F label="จำนวน" k="quantity" type="number" /><F label="สินค้า" k="item_desc" ph="สินค้า" />
+            {field("weight", "น้ำหนัก (kg)", undefined, { type: "number" })}{field("quantity", "จำนวน", undefined, { type: "number" })}{field("item_desc", "สินค้า", "สินค้า")}
             <div style={{ gridColumn: "span 3" }}>
               <label style={L}>👤 พนักงานขาย (Sale)</label>
               <input list="salePersonList" value={form.sale_person || ""} onChange={e => set("sale_person", e.target.value)} placeholder="เลือกจากรายชื่อ หรือพิมพ์ชื่อใหม่" style={I} />
               <datalist id="salePersonList">{salePersons.map(s => <option key={s} value={s} />)}</datalist>
             </div>
-            <F label="💵 ราคาขาย (บาท)" k="sale_price" type="number" span={3} />
-            <F label="📱 FB / Line ลูกค้า" k="customer_fb_line" ph="ชื่อ FB หรือ Line ของลูกค้า" span={3} />
+            {field("sale_price", "💵 ราคาขาย (บาท)", undefined, { type: "number", span: 3 })}
+            {field("customer_fb_line", "📱 FB / Line ลูกค้า", "ชื่อ FB หรือ Line ของลูกค้า", { span: 3 })}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>💰 COD {locked && <span style={{ fontSize: 12, fontWeight: 600, color: "#b91c1c" }}>🔒</span>}</h3>
             <div onClick={() => { if (!locked) set("cod_enabled", !form.cod_enabled); }} style={{ width: 44, height: 24, borderRadius: 12, background: form.cod_enabled ? "#059669" : "#d1d5db", cursor: locked ? "not-allowed" : "pointer", position: "relative", opacity: locked ? 0.6 : 1 }}><div style={{ width: 20, height: 20, borderRadius: 10, background: "#fff", position: "absolute", top: 2, left: form.cod_enabled ? 22 : 2, transition: ".2s" }} /></div>
           </div>
-          {form.cod_enabled && <F label="จำนวนเงิน (บาท)" k="cod_amount" type="number" disabled={locked} />}
+          {form.cod_enabled && field("cod_amount", "จำนวนเงิน (บาท)", undefined, { type: "number", disabled: locked })}
           <div style={{ marginTop: 16 }}><label style={L}>หมายเหตุ</label><textarea value={form.remark || ""} onChange={e => set("remark", e.target.value)} rows={2} style={{ ...I, resize: "vertical" }} /></div>
         </div>
         <div style={{ padding: "16px 24px", borderTop: "1px solid #f1f5f9", display: "flex", gap: 10 }}>
