@@ -2055,7 +2055,7 @@ export default function FlashBackend() {
     if (preWin) preWin.document.write("<p style='font-family:sans-serif;padding:24px'>กำลังเตรียมใบปะหน้า…</p>");
     // The J&T create response is stored with the parcel; load it for the real
     // sorting code and routing details instead of drawing a made-up Flash code.
-    const targets = await hydrateApiResponse(rawTargets);
+    const targets = rawTargets.some(isJtParcel) ? await hydrateApiResponse(rawTargets) : rawTargets;
     const maskPhone = (ph) => (ph || "").replace(/^(\d{3})\d{4}(\d{3})$/, "$1****$2");
     const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
     const now = new Date().toLocaleString("en-GB", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
