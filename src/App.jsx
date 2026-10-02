@@ -2092,7 +2092,7 @@ export default function FlashBackend() {
         raddr2: `${p.receiver_subdistrict || ""}${p.receiver_subdistrict ? ", " : ""}${p.receiver_district || ""}`,
         raddr3: `${p.receiver_province || ""} ${p.receiver_postal || ""}`.trim(),
         cod: (p.cod_enabled && Number(p.cod_amount) > 0) ? Number(p.cod_amount) : 0,
-        item: p.item_desc || p.remark || "",
+        item: p.remark || "",
       };
     });
 
@@ -2181,7 +2181,7 @@ export default function FlashBackend() {
         html += `<div class="cod-val" style="font-size:10px;color:#666">—</div>`;
       }
       html += `</div>`;
-      html += `<div class="dst-item" style="font-size:15px;color:#000;font-weight:800;padding:2px 8px;line-height:1.2">📦 สินค้า: ${escapeHtml(p.item_desc || p.remark || "-")}</div>`;
+      html += `<div class="dst-item" style="font-size:15px;color:#000;font-weight:800;padding:2px 8px;line-height:1.2">📦 สินค้า: ${escapeHtml(p.remark || "-")}</div>`;
       if (jt) {
         html += `<div class="jt-meta"><span>No. ${escapeHtml(jt.orderNo)}</span><span>${jt.weight === null ? "" : `W:${escapeHtml(jt.weight)}KG`}</span><span>${jt.quantity === null ? "" : `จำนวน ${escapeHtml(jt.quantity)}`}</span></div>`;
         if (jt.remark) html += `<div class="jt-remark">หมายเหตุ: ${escapeHtml(jt.remark)}</div>`;
