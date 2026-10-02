@@ -2136,11 +2136,11 @@ export default function FlashBackend() {
     // Toolbar
     html += `<div class="no-print toolbar"><div class="toolbar-top">`;
     html += `<button class="btn-print" onclick="printSelected()">🖨️ ปริ้นที่เลือก</button>`;
-    html += `<button class="btn-dl" onclick="downloadOurLabels()">📥 ดาวน์โหลด PDF (ใบของเรา)</button>`;
+    html += `<button class="btn-dl" onclick="${targets.every(p => !isJtParcel(p)) ? "printSelected()" : "downloadOurLabels()"}">${targets.every(p => !isJtParcel(p)) ? "📥 บันทึก PDF แบบใบ Flash เดิม" : "📥 ดาวน์โหลด PDF (ใบของเรา)"}</button>`;
     if (targets.some(isJtParcel)) html += `<button class="btn-official" id="officialJtLabels" style="background:#fff;color:#1e293b">📄 ใบปะหน้า J&T ทางการ</button>`;
     html += `<span style="font-size:12px">ทั้งหมด ${total} ใบ</span>`;
     html += `</div>`;
-    html += `<div class="no-print" style="text-align:center;font-size:11px;color:#fbbf24;margin-bottom:8px;line-height:1.4">📥 <b>"ดาวน์โหลด PDF (ใบของเรา)"</b> = ใบดีไซน์ของระบบ &nbsp;·&nbsp; 🖨️ <b>"ปริ้นที่เลือก"</b> = ปริ้นจากเบราว์เซอร์${targets.some(isJtParcel) ? "<br>⚠️ ใบ J&T นี้ออกแบบโดยระบบ แม้แสดงรหัสคัดแยกที่ J&T ส่งมา ก็ไม่ใช่ใบปะหน้าทางการ โปรดใช้ PDF ทางการเมื่อต้องส่งกับขนส่ง" : ""}</div>`;
+    html += `<div class="no-print" style="text-align:center;font-size:11px;color:#fbbf24;margin-bottom:8px;line-height:1.4">${targets.every(p => !isJtParcel(p)) ? "📥 บันทึก PDF แบบใบ Flash เดิม: เลือก 'Save as PDF' ในหน้าพิมพ์" : "📥 ดาวน์โหลด PDF (ใบของเรา) = ใบดีไซน์ของระบบ"} &nbsp;·&nbsp; 🖨️ ปริ้นที่เลือก = ปริ้นจากเบราว์เซอร์${targets.some(isJtParcel) ? "<br>⚠️ ใบ J&T นี้ออกแบบโดยระบบ แม้แสดงรหัสคัดแยกที่ J&T ส่งมา ก็ไม่ใช่ใบปะหน้าทางการ โปรดใช้ PDF ทางการเมื่อต้องส่งกับขนส่ง" : ""}</div>`;
     html += `<div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap">`;
     html += `<button onclick="toggleAll(true)" style="padding:4px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;background:transparent;color:#10b981;font-size:11px;font-weight:700;cursor:pointer">☑ เลือกทั้งหมด</button>`;
     html += `<button onclick="toggleAll(false)" style="padding:4px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;background:transparent;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer">☐ ยกเลิกทั้งหมด</button>`;
