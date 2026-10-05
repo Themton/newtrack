@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ADDR_DB, { PROVINCES } from "./addr.js";
 import { shopSenderLocation } from "./shopSenderLocation.js";
 import ShopAddressFields from "./ShopAddressFields.jsx";
+import JtPickupAlert from "./JtPickupAlert.jsx";
 import { shopCarrierKey, otherCarrierDefaults, hasCarrierDefault } from "./shopDefaults.js";
 import { jtLabelDetails } from "./jtLabelDetails.js";
 
@@ -56,6 +57,12 @@ const parcelCarrier = p => isJtParcel(p) ? "jnt" : p.flash_pno ? "flash" : "";
 const jtApi = {
   sessionToken: (() => { try { return sessionStorage.getItem("fx_jt_session") || ""; } catch { return ""; } })(),
   labelType: 1,
+  async tracking(body, signal) {
+    const res = await fetch(`${WORKER_URL}/jt-api/tracking`, { method: "POST", headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(25000)]) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.msg || "เชื่อมต่อ J&T ไม่สำเร็จ");
+    return data;
+  },
   headers() {
     if (!this.sessionToken) throw new Error("กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่เพื่อใช้ J&T");
     return { "Content-Type": "application/json", Authorization: "Bearer " + this.sessionToken };
@@ -5114,6 +5121,7 @@ export default function FlashBackend() {
             </div>
 
             {/* 🔔 แจ้งเตือน: พัสดุยังไม่เข้าระบบ Flash */}
+            {carrierFilter === "jnt" && <JtPickupAlert parcels={carrierParcels} shops={shops} api={jtApi} />}
             {carrierFilter === "flash" && notInFlash.length > 0 && (
               <div style={{ margin: "0 24px 12px", background: "linear-gradient(135deg,#fef2f2,#fff7ed)", border: "1.5px solid #fca5a5", borderRadius: 12, overflow: "hidden" }}>
                 <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => { setShowNotifPanel(v => !v); if (showNotifPanel) setNotifSelected(new Set()); }}>
