@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ADDR_DB, { PROVINCES } from "./addr.js";
 import { shopSenderLocation } from "./shopSenderLocation.js";
 import ShopAddressFields from "./ShopAddressFields.jsx";
+import { shopCarrierKey, otherCarrierDefaults, hasCarrierDefault } from "./shopDefaults.js";
 import { jtLabelDetails } from "./jtLabelDetails.js";
 
 // ═══════════════════════════════════════════════════════════════
@@ -1259,9 +1260,12 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
     setSaving(true);
     try {
       const payload = { ...form, carrier: shopCarrier };
+      const previousShop = shops.find(s => s.id === editId);
+      // Moving a shop must not carry its default flag into another carrier.
+      if (previousShop && shopCarrierKey(previousShop) !== shopCarrier) payload.is_default = !hasCarrierDefault(shops, shopCarrier);
       if (shopCarrier === "flash") delete payload.jt_app;
       if (editId) { await sb.update("fx_shops", editId, payload); }
-      else { await sb.insert("fx_shops", { ...payload, is_active: true, is_default: shops.length === 0 }); }
+      else { await sb.insert("fx_shops", { ...payload, is_active: true, is_default: !hasCarrierDefault(shops, shopCarrier) }); }
       setShowForm(false); load(); onUpdate?.();
     } catch (e) { uiAlert(e.message); }
     setSaving(false);
@@ -1270,8 +1274,9 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
   const toggleDefault = async (s) => {
     if (isDemo) return;
     try {
-      const currentDefault = shops.find(sh => sh.is_default);
-      if (currentDefault && currentDefault.id !== s.id) await sb.update("fx_shops", currentDefault.id, { is_default: false });
+      for (const currentDefault of otherCarrierDefaults(shops, s)) {
+        await sb.update("fx_shops", currentDefault.id, { is_default: false });
+      }
       await sb.update("fx_shops", s.id, { is_default: true }); load(); onUpdate?.();
     } catch (e) { uiAlert(e.message); }
   };
@@ -1309,7 +1314,7 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
       shops.map(s => (
         <div key={s.id} style={{ padding: "14px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name} {s.is_default && <span style={{ fontSize: 10, background: "#ecfdf5", color: "#059669", padding: "2px 8px", borderRadius: 10, fontWeight: 600, marginLeft: 6 }}>ค่าเริ่มต้น</span>}</div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name} {s.is_default && <span style={{ fontSize: 12, background: "#ecfdf5", color: "#059669", padding: "2px 8px", borderRadius: 10, fontWeight: 600, marginLeft: 6 }}>ค่าเริ่มต้น {shopCarrierKey(s) === "jnt" ? "J&T" : "Flash"}</span>}</div>
             <div style={{ fontSize: 12, color: "#64748b" }}>{s.phone} · {s.address} {s.province} {s.postal}</div>
             <div style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>{s.carrier === "jnt" ? `J&T EXPRESS · ${s.jt_app || "ยังไม่เลือก VIP"}` : `⚡ Flash Express · ${s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId}`}</div>
           </div>
