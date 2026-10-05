@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ADDR_DB, { PROVINCES } from "./addr.js";
 import { shopSenderLocation } from "./shopSenderLocation.js";
+import ShopAddressFields from "./ShopAddressFields.jsx";
 import { jtLabelDetails } from "./jtLabelDetails.js";
 
 // ═══════════════════════════════════════════════════════════════
@@ -1252,7 +1253,7 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
   useEffect(() => { load(); }, [load]);
 
   const openAdd = () => { setShopCarrier("flash"); setEditId(null); setForm({ name: "", phone: "", address: "", province: "", postal: "", flash_mch_id: FLASH_ACCOUNTS[0]?.mchId || "", jt_app: "" }); setShowForm(true); };
-  const openEdit = (s) => { setShopCarrier(s.carrier === "jnt" ? "jnt" : "flash"); setEditId(s.id); setForm({ name: s.name || "", phone: s.phone || "", address: s.address || "", province: s.province || "", postal: s.postal || "", flash_mch_id: s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId || "", jt_app: s.jt_app || "" }); setShowForm(true); };
+  const openEdit = (s) => { setShopCarrier(s.carrier === "jnt" ? "jnt" : "flash"); setEditId(s.id); setForm({ name: s.name || "", phone: s.phone || "", address: s.address || "", ...shopSenderLocation(s), province: (s.province || "").replace("กรุงเทพมหานคร", "กรุงเทพ"), postal: s.postal || "", flash_mch_id: s.flash_mch_id || FLASH_ACCOUNTS[0]?.mchId || "", jt_app: s.jt_app || "" }); setShowForm(true); };
 
   const handleSave = async () => {
     if (!form.name || !form.phone) { uiAlert("กรุณากรอกชื่อร้าน + เบอร์โทร"); return; }
@@ -1293,9 +1294,7 @@ function ShopManagement({ onClose, onUpdate, isDemo, inline }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>ชื่อร้าน *</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="ชื่อร้าน" style={I} /></div>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>เบอร์โทร *</label><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="08X..." style={I} /></div>
-          <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>ที่อยู่</label><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="บ้านเลขที่ ถนน ซอย ตำบล อำเภอ จังหวัด รหัสไปรษณีย์" style={I} /></div>
-          <div><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>จังหวัด</label><select value={form.province} onChange={e => setForm(f => ({ ...f, province: e.target.value }))} style={{ ...I, background: "#fff" }}><option value="">--</option>{PROVINCES.map(p => <option key={p}>{p}</option>)}</select></div>
-          <div><label style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>รหัสไปรษณีย์</label><input value={form.postal} onChange={e => setForm(f => ({ ...f, postal: e.target.value }))} placeholder="XXXXX" style={I} /></div>
+          <ShopAddressFields form={form} setForm={setForm} inputStyle={I} />
           <div style={{ gridColumn: "span 2" }}><label htmlFor="shop-carrier" style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>ขนส่งประจำร้าน</label><select id="shop-carrier" value={shopCarrier} onChange={e => setShopCarrier(e.target.value)} style={{ ...I, background: "#fff" }}>{CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
           {shopCarrier === "flash" && <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>⚡ บัญชี Flash Express</label><select value={form.flash_mch_id} onChange={e => setForm(f => ({ ...f, flash_mch_id: e.target.value }))} style={{ ...I, background: "#fff", borderColor: "#fbbf24" }}>{FLASH_ACCOUNTS.map(a => <option key={a.mchId} value={a.mchId}>{a.name} ({a.mchId})</option>)}</select></div>}
           {shopCarrier === "jnt" && <div style={{ gridColumn: "span 2" }}><label htmlFor="shop-jnt-app" style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>บัญชี J&T *</label><select id="shop-jnt-app" value={form.jt_app} onChange={e => setForm(f => ({ ...f, jt_app: e.target.value }))} style={{ ...I, background: "#fff" }}><option value="">-- เลือก VIP --</option>{JNT_APPS.map(app => <option key={app} value={app}>{app}</option>)}</select></div>}
