@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { jtPickupStatus } from "./jtPickupStatus.js";
 
+test("production trace response uses tracesList (observed in browser)", () => {
+  assert.equal(jtPickupStatus({ code: "1", msg: "success", data: { billCode: "TEST", txlogisticId: "TEST", tracesList: [] } }), "waiting");
+  assert.equal(jtPickupStatus({ code: "1", data: { tracesList: [{ scanType: "Picked Up", scanTime: "2026-10-05 12:00:00" }] } }), "received");
+  assert.throws(() => jtPickupStatus({ code: "1", data: { tracesList: {} } }));
+});
+
 test("empty successful traces are waiting, not API errors", () => {
   assert.equal(jtPickupStatus({ code: 1, data: { details: [] } }), "waiting");
   assert.throws(() => jtPickupStatus({ code: 0, msg: "timeout" }));
