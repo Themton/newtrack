@@ -897,7 +897,10 @@ async function downloadProShipTemplate(filename = "import-template.xlsx") {
 // ═══════════════════════════════════════════════════════════════
 // IMPORT EXCEL MODAL
 // ═══════════════════════════════════════════════════════════════
-function ImportModal({ user, shops, onSave, onClose, inline }) {
+function ImportModal({ user, shops: allShops, onSave, onClose, inline, carrier = "flash" }) {
+  const shops = (allShops || []).filter(s => s.is_active && (carrier === "jnt"
+    ? s.carrier === "jnt" && JNT_APPS.includes(s.jt_app)
+    : !s.carrier || s.carrier === "flash"));
   const [rows, setRows] = useState([]);
   const [rejectedRows, setRejectedRows] = useState([]);
   const [importing, setImporting] = useState(false);
@@ -992,6 +995,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
     if (!selected.length) { uiAlert("ไม่มีรายการที่เลือก"); return; }
     if (!selectedShop) { uiAlert("กรุณาเลือกร้านค้าก่อนนำเข้า"); return; }
     const shop = shops?.find(s => s.id === selectedShop);
+    if (!shop) { uiAlert("กรุณาเลือกร้านค้าที่ใช้งานได้สำหรับขนส่งนี้"); return; }
     setImporting(true);
     setImportTotal(selected.length);
     let success = 0;
@@ -1014,7 +1018,7 @@ function ImportModal({ user, shops, onSave, onClose, inline }) {
           sale_person: r.sale_person || "",
           sale_price: r.sale_price || 0,
           remark: r.remark || "",
-          source: "import",
+          source: carrier === "jnt" ? "jnt" : "import",
           created_by: user.id, created_by_name: user.display_name, shop_id: selectedShop || null,
         };
         await sb.insert("fx_parcels", parcelData);
@@ -2431,7 +2435,8 @@ export default function FlashBackend() {
     ...(perm.dashboard ? [{ key: "summary", label: "สรุปรายงาน", icon: "📋" }] : []),
     ...(perm.evaluate ? [{ key: "evaluate", label: "ประเมินผล", icon: "📈" }] : []),
     ...(perm.viewCOD ? [{ key: "cod", label: "กระทบยอด COD", icon: "💵" }] : []),
-    { key: "import", label: "Import ไฟล์", icon: "📥" },
+    { key: "import", label: "นำเข้า Flash", icon: "📥" },
+    { key: "import-jnt", label: "นำเข้า J&T", icon: "📥" },
     { key: "upsell", label: "Upsell", icon: "💰" },
     ...(perm.exportData ? [{ key: "export", label: "Export ข้อมูล", icon: "📤" }] : []),
     ...(perm.exportData ? [{ key: "exportpno", label: "Export เลขพัสดุ", icon: "🔢" }] : []),
@@ -5308,14 +5313,15 @@ export default function FlashBackend() {
           {activePage === "evaluate" && <EvaluatePage />}
           {activePage === "cod" && <CODReconcilePage />}
           {activePage === "exportpno" && <ExportPnoPage />}
-          {activePage === "import" && (
+          {(activePage === "import" || activePage === "import-jnt") && (
             <div style={{ padding: 24 }}>
               <div style={{ marginBottom: 24 }}>
-                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📥 Import ไฟล์สร้างเลขพัสดุ</h2>
-                <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>อัพโหลดไฟล์ CSV / Excel → ตรวจสอบข้อมูล → สร้างออเดอร์ + เลขพัสดุ Flash</p>
+                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📥 นำเข้าไฟล์ {activePage === "import-jnt" ? "J&T EXPRESS" : "Flash Express"}</h2>
+                <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>อัพโหลดไฟล์ CSV / Excel → ตรวจสอบข้อมูล → บันทึกเป็นรายการเตรียมส่ง → สร้างเลขพัสดุในหน้าการจัดส่ง</p>
+                {activePage === "import-jnt" && <p style={{ color: "#dc2626", fontSize: 14 }}>เลือกร้านที่ผูกบัญชี VIP ของ J&T ระบบจะใช้บัญชีของร้านเมื่อสร้างเลขพัสดุ และนำหมายเหตุไปแสดงบนใบลาเบล</p>}
               </div>
               <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                <ImportModal user={user} shops={shops} onClose={() => setActivePage("parcels")} onSave={() => { setActivePage("parcels"); loadParcels(); }} inline />
+                <ImportModal key={activePage} carrier={activePage === "import-jnt" ? "jnt" : "flash"} user={user} shops={shops} onClose={() => setActivePage("parcels")} onSave={() => { setActivePage("parcels"); loadParcels(); }} inline />
               </div>
             </div>
           )}
