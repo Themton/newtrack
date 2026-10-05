@@ -1638,6 +1638,7 @@ export default function FlashBackend() {
 
   // ═══ พัสดุค้างรับ "ทุกเดือน" — สำหรับเมนู "แฟลชยังไม่เข้ารับ" (มีเลขแล้วแต่ Flash ยังไม่สแกนรับ = ยังไม่มีรายละเอียดล่าสุด) ═══
   const [notInFlashAll, setNotInFlashAll] = useState([]);
+  const [jtWaitingCount, setJtWaitingCount] = useState(0);
   const loadNotInFlash = useCallback(async () => {
     if (isDemo) return;
     try {
@@ -5030,7 +5031,7 @@ export default function FlashBackend() {
         {/* Menu */}
         <div style={{ flex: 1, padding: "12px 8px" }}>
           {MENU.map(m => {
-            const badge = m.key === "parcels" ? notInFlash.length : m.key === "notinflash" ? (isDemo ? notInFlash.length : notInFlashAll.length) : 0;
+            const badge = m.key === "parcels" ? notInFlash.length : m.key === "parcels-jnt" ? jtWaitingCount : m.key === "notinflash" ? (isDemo ? notInFlash.length : notInFlashAll.length) : 0;
             return (
             <button key={m.key} onClick={() => m.key === "parcels" || m.key === "parcels-jnt" ? switchShippingCarrier(m.key === "parcels-jnt" ? "jnt" : "flash") : setActivePage(m.key)} style={{
               width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, marginBottom: 4,
@@ -5054,6 +5055,7 @@ export default function FlashBackend() {
 
       {/* ═══ MAIN CONTENT ═══ */}
       <div style={{ flex: 1, marginLeft: 200, minHeight: "100vh" }}>
+        {!isDemo && <JtPickupAlert parcels={parcels} shops={shops} api={jtApi} visible={activePage === "parcels-jnt"} onWaitingCount={setJtWaitingCount} />}
         {/* TOP BAR */}
         {isShippingPage && (
           <div style={{ background: "#fff", padding: "14px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 50, flexWrap: "wrap" }}>
@@ -5121,7 +5123,6 @@ export default function FlashBackend() {
             </div>
 
             {/* 🔔 แจ้งเตือน: พัสดุยังไม่เข้าระบบ Flash */}
-            {carrierFilter === "jnt" && <JtPickupAlert parcels={carrierParcels} shops={shops} api={jtApi} />}
             {carrierFilter === "flash" && notInFlash.length > 0 && (
               <div style={{ margin: "0 24px 12px", background: "linear-gradient(135deg,#fef2f2,#fff7ed)", border: "1.5px solid #fca5a5", borderRadius: 12, overflow: "hidden" }}>
                 <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => { setShowNotifPanel(v => !v); if (showNotifPanel) setNotifSelected(new Set()); }}>

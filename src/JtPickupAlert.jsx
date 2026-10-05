@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { jtPickupStatus } from "./jtPickupStatus.js";
 
-export default function JtPickupAlert({ parcels, shops, api }) {
+export default function JtPickupAlert({ parcels, shops, api, visible = true, onWaitingCount }) {
   const [results, setResults] = useState({});
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -44,13 +44,14 @@ export default function JtPickupAlert({ parcels, shops, api }) {
   };
   const pending = targets.filter(p => stateFor(p)?.state !== "received");
   const waiting = pending.filter(p => stateFor(p)?.state === "waiting").length;
-  if (!targets.length) return null;
+  useEffect(() => { onWaitingCount?.(waiting); }, [waiting, onWaitingCount]);
+  if (!visible || !targets.length) return null;
   return <section style={{ margin: "0 24px 12px", padding: 16, background: "#fff7ed", border: "1.5px solid #fdba74", borderRadius: 12 }}>
     <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <button onClick={() => setExpanded(v => !v)} aria-expanded={expanded} style={{ background: "none", border: 0, fontSize: 16, fontWeight: 800, color: "#9a3412", cursor: "pointer" }}>🔔 J&T ยังไม่พบการเข้ารับ: {waiting} รายการ · รอตรวจสอบ/ตรวจไม่ได้: {pending.length - waiting} รายการ {expanded ? "▲" : "▼"}</button>
       <button disabled={busy} onClick={() => setRevision(v => v + 1)}>{busy ? "กำลังตรวจสถานะ…" : "ตรวจสถานะอีกครั้ง"}</button>
     </div>
-    <p style={{ fontSize: 13, color: "#92400e", margin: "8px 0 0" }}>เฉพาะเดือนที่เปิดอยู่ · ตรวจซ้ำประมาณทุก 2 นาทีหลังจบรอบ ขณะเปิดหน้านี้ · สถานะปริ้นแล้วไม่ถือว่าขนส่งเข้ารับ</p>
+    <p style={{ fontSize: 13, color: "#92400e", margin: "8px 0 0" }}>เฉพาะเดือนที่เปิดอยู่ · ตรวจซ้ำประมาณทุก 2 นาทีหลังจบรอบ ขณะเปิดเว็บ · สถานะปริ้นแล้วไม่ถือว่าขนส่งเข้ารับ</p>
     {expanded && <div style={{ overflowX: "auto", marginTop: 12 }}><table style={{ width: "100%", fontSize: 14 }}><thead><tr><th>เลขพัสดุ</th><th>ผู้รับ</th><th>ผลการตรวจ</th></tr></thead><tbody>{pending.map(p => { const result = stateFor(p); return <tr key={p.id}><td>{p.flash_pno}</td><td>{p.receiver_name}</td><td>{result?.state === "waiting" ? `ยังไม่พบการเข้ารับ · ตรวจเมื่อ ${result.checkedAt}` : result?.message || "รอตรวจสอบ"}</td></tr>; })}</tbody></table>{!pending.length && <p>ทุกรายการพบสถานะการรับหรือเคลื่อนย้ายพัสดุแล้ว</p>}</div>}
   </section>;
 }
