@@ -723,7 +723,7 @@ function ParcelField({ label, field, placeholder, type = "text", span, disabled,
 function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose, initialCarrier }) {
   const isEdit = !!parcel?.id;
   const locked = isEdit && !!parcel?.flash_pno; // สร้างเลขพัสดุแล้ว → ห้ามแก้ที่อยู่ + COD
-  const [carrier, setCarrier] = useState(() => isJtParcel(parcel) || parcel?.carrier === "jt" ? "jnt" : parcel?.carrier || (!parcel && initialCarrier) || (shops?.find(s => s.is_default) || shops?.[0])?.carrier || "flash");
+  const [carrier] = useState(() => isJtParcel(parcel) || parcel?.carrier === "jt" ? "jnt" : parcel?.carrier || (!parcel && initialCarrier) || shops?.find(s => s.id === parcel?.shop_id)?.carrier || (shops?.find(s => s.is_default) || shops?.[0])?.carrier || "flash");
   const [form, setForm] = useState(parcel || { sender_name: "", sender_phone: "", sender_address: "", sender_province: "", receiver_name: "", receiver_phone: "", receiver_address: "", receiver_province: "", receiver_district: "", receiver_subdistrict: "", receiver_postal: "", weight: 1, item_desc: "", sale_person: "", sale_price: 0, customer_fb_line: "", quantity: 1, cod_enabled: false, cod_amount: 0, remark: "" });
   const [saving, setSaving] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
@@ -785,9 +785,7 @@ try { const d = { ...form }; delete d.carrier; delete d.id; delete d.created_at;
           {/* ═══ เลือกร้านค้า ═══ */}
           <div style={{ marginBottom: 20 }}>
             <label htmlFor="parcel-carrier" style={L}>ขนส่ง</label>
-            <select id="parcel-carrier" value={carrier} onChange={e => { const next = e.target.value; setCarrier(next); const first = (shops || []).find(s => s.is_active && (s.carrier === next || (next === "flash" && !s.carrier)) && (next !== "jnt" || JNT_APPS.includes(s.jt_app))); if (first) selectShop(first.id); else setForm(f => ({ ...f, shop_id: "", sender_name: "", sender_phone: "", sender_address: "", sender_province: "", sender_postal: "", sender_district: "", sender_subdistrict: "" })); }} disabled={locked} style={{ ...I, background: locked ? "#f1f5f9" : "#fff" }}>
-              {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
+            <div id="parcel-carrier" style={{ ...I, background: "#f1f5f9", fontWeight: 700 }}>{carrier === "jnt" ? "J&T EXPRESS" : "Flash Express"}</div>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🏪 ร้านค้า / ผู้ส่ง</h3>
@@ -1912,16 +1910,17 @@ export default function FlashBackend() {
   // Batch สร้างเลข Tracking
   const [batchProgress, setBatchProgress] = useState(null);
   const [carrierRequest, setCarrierRequest] = useState(null);
-  const [selectedCarrier, setSelectedCarrier] = useState("flash");
+  const selectedCarrier = carrierFilter;
+  const matchesShippingCarrier = p => (parcelCarrier(p) || shops.find(s => s.id === p.shop_id)?.carrier || "flash") === carrierFilter;
   const openCarrierPicker = (parcel = null) => {
     const targets = parcel ? [parcel] : parcels.filter(p => selectedIds.has(p.id));
-    const carriers = new Set(targets.map(p => isJtParcel(p) ? "jnt" : shops.find(s => s.id === p.shop_id)?.carrier || "flash"));
-    setSelectedCarrier(carriers.size === 1 ? [...carriers][0] : "flash");
+    if (targets.some(p => !matchesShippingCarrier(p))) { uiAlert("กรุณาเลือกรายการของขนส่งในหน้านี้เท่านั้น"); return; }
     setCarrierRequest({ parcel });
   };
   const [cancelProgress, setCancelProgress] = useState(null);
   const batchCreateFlash = async (carrier = "flash") => {
     const targets = parcels.filter(p => selectedIds.has(p.id) && !p.flash_pno && p.receiver_name && p.receiver_phone);
+    if (carrier !== carrierFilter || targets.some(p => !matchesShippingCarrier(p))) { uiAlert("ไม่สามารถสร้างเลขพัสดุข้ามขนส่งได้"); return; }
     if (!targets.length) { uiAlert("ไม่มีรายการที่เลือก (ต้องยังไม่มีเลข Tracking + มีข้อมูลผู้รับ)"); return; }
     if (carrier === "jnt" && isDemo) { uiAlert("โหมดตัวอย่างไม่สามารถสร้างเลข J&T ได้"); return; }
     if (carrier === "jnt" && targets.some(p => !shops.some(s => s.id === p.shop_id && s.is_active && s.carrier === "jnt" && JNT_APPS.includes(s.jt_app)))) { uiAlert("มีพัสดุที่ไม่ได้ผูกร้าน J&T กับบัญชี VIP"); return; }
@@ -5082,10 +5081,7 @@ export default function FlashBackend() {
             {carrierRequest && <div style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div role="dialog" aria-modal="true" aria-labelledby="carrier-title" style={{ background: "#fff", padding: 24, borderRadius: 16, width: "90%", maxWidth: 420 }}>
                 <h3 id="carrier-title" style={{ marginTop: 0 }}>สร้างเลขพัสดุ</h3>
-                <label htmlFor="create-carrier">เลือกขนส่ง</label>
-                <select id="create-carrier" value={selectedCarrier} onChange={e => setSelectedCarrier(e.target.value)} style={{ display: "block", width: "100%", padding: 10, margin: "8px 0 16px" }}>
-                  {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                </select>
+                <p style={{ fontSize: 18, fontWeight: 700 }}>{selectedCarrier === "jnt" ? "J&T EXPRESS" : "Flash Express"}</p>
                 {selectedCarrier === "jnt" && <>
                   <p style={{ fontSize: 13, color: "#334155" }}>บัญชีของร้าน: {(() => { const targets = carrierRequest.parcel ? [carrierRequest.parcel] : parcels.filter(p => selectedIds.has(p.id)); const accounts = [...new Set(targets.map(p => shops.find(s => s.id === p.shop_id)?.jt_app).filter(Boolean))]; return accounts.length ? accounts.join(", ") : "ยังไม่ได้เลือกร้าน J&T"; })()}</p>
                   <p style={{ fontSize: 12, color: "#64748b" }}>J&T EXPRESS · ระบบยืนยันสิทธิ์จากการเข้าสู่ระบบอัตโนมัติ ใช้บัญชี VIP ของร้านที่ผูกไว้ กรุณาตรวจสอบข้อมูลผู้ส่งและผู้รับก่อนสร้างเลขพัสดุจริง</p>
@@ -5095,6 +5091,7 @@ export default function FlashBackend() {
                   <button onClick={async () => {
                     const request = carrierRequest;
                     setCarrierRequest(null);
+                    if (request.parcel && !matchesShippingCarrier(request.parcel)) { uiAlert("ไม่สามารถสร้างเลขพัสดุข้ามขนส่งได้"); return; }
                     if (!request.parcel) await batchCreateFlash(selectedCarrier);
                     else if (selectedCarrier === "jnt") await createJtOrder(request.parcel);
                     else await createFlashOrder(request.parcel);
