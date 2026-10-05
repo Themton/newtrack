@@ -719,10 +719,10 @@ function ParcelField({ label, field, placeholder, type = "text", span, disabled,
     <input type={type} value={value ?? ""} onChange={e => onChange(field, type === "number" ? +e.target.value : e.target.value)} placeholder={placeholder} disabled={disabled} style={{ ...inputStyle, ...(disabled ? { background: "#f1f5f9", color: "#94a3b8", cursor: "not-allowed" } : {}) }} />
   </div>;
 }
-function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose }) {
+function ParcelForm({ parcel, user, shops, salePersons = [], onSave, onClose, initialCarrier }) {
   const isEdit = !!parcel?.id;
   const locked = isEdit && !!parcel?.flash_pno; // สร้างเลขพัสดุแล้ว → ห้ามแก้ที่อยู่ + COD
-  const [carrier, setCarrier] = useState(() => isJtParcel(parcel) || parcel?.carrier === "jt" ? "jnt" : parcel?.carrier || (shops?.find(s => s.is_default) || shops?.[0])?.carrier || "flash");
+  const [carrier, setCarrier] = useState(() => isJtParcel(parcel) || parcel?.carrier === "jt" ? "jnt" : parcel?.carrier || (!parcel && initialCarrier) || (shops?.find(s => s.is_default) || shops?.[0])?.carrier || "flash");
   const [form, setForm] = useState(parcel || { sender_name: "", sender_phone: "", sender_address: "", sender_province: "", receiver_name: "", receiver_phone: "", receiver_address: "", receiver_province: "", receiver_district: "", receiver_subdistrict: "", receiver_postal: "", weight: 1, item_desc: "", sale_person: "", sale_price: 0, customer_fb_line: "", quantity: 1, cod_enabled: false, cod_amount: 0, remark: "" });
   const [saving, setSaving] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
@@ -1444,7 +1444,7 @@ export default function FlashBackend() {
   }, [user, activePage]);
   const [selectedShopFilter, setSelectedShopFilter] = useState("");
   const [codFilter, setCodFilter] = useState("");
-  const [carrierFilter, setCarrierFilter] = useState("");
+  const [carrierFilter, setCarrierFilter] = useState("flash");
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [notifSelected, setNotifSelected] = useState(new Set());
   const [upsellShop, setUpsellShop] = useState(""); // ตัวกรองร้านค้าในตาราง
@@ -1683,21 +1683,33 @@ export default function FlashBackend() {
     { key: "cancelled", label: "ยกเลิก", icon: "❌", color: "#dc2626" },
   ];
 
+  const carrierParcels = useMemo(() => parcels.filter(p => {
+    const carrier = parcelCarrier(p) || shops.find(s => s.id === p.shop_id)?.carrier || "flash";
+    return carrier === carrierFilter;
+  }), [parcels, shops, carrierFilter]);
+  const switchShippingCarrier = (carrier) => {
+    setCarrierFilter(carrier);
+    setSelectedShopFilter("");
+    setStatusFilter("ALL");
+    setCodFilter("");
+    setPage(0);
+    setSelectedIds(new Set());
+    setCarrierRequest(null);
+  };
   const filtered = useMemo(() => {
-    let list = parcels;
+    let list = carrierParcels;
     if (selectedShopFilter) list = list.filter(p => p.shop_id === selectedShopFilter);
-    if (carrierFilter) list = list.filter(p => parcelCarrier(p) === carrierFilter);
     if (statusFilter !== "ALL") list = list.filter(p => p.status === statusFilter);
     if (codFilter === "cod") list = list.filter(p => Number(p.cod_amount) > 0);
     else if (codFilter === "nocod") list = list.filter(p => !Number(p.cod_amount));
     else if (codFilter) list = list.filter(p => Number(p.cod_amount) === Number(codFilter));
     if (search) { const q = search.toLowerCase(); list = list.filter(p => [p.parcel_no, p.receiver_name, p.receiver_phone, p.flash_pno, p.flash_sort_code, p.receiver_province, p.receiver_address, p.remark, p.created_by_name].some(v => (v || "").toLowerCase().includes(q))); }
     return list;
-  }, [parcels, search, selectedShopFilter, statusFilter, codFilter, carrierFilter]);
+  }, [carrierParcels, search, selectedShopFilter, statusFilter, codFilter]);
 
   const paged = filtered.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
-  const statsData = useMemo(() => { const list = selectedShopFilter ? parcels.filter(p => p.shop_id === selectedShopFilter) : parcels; return list; }, [parcels, selectedShopFilter]);
+  const statsData = useMemo(() => selectedShopFilter ? carrierParcels.filter(p => p.shop_id === selectedShopFilter) : carrierParcels, [carrierParcels, selectedShopFilter]);
   const stats = useMemo(() => ({ total: statsData.length, draft: statsData.filter(p => p.status === "draft").length, created: statsData.filter(p => p.status === "created").length, printed: statsData.filter(p => p.status === "printed").length, cancelled: statsData.filter(p => p.status === "cancelled").length, codTotal: statsData.filter(p => p.cod_enabled).reduce((s, p) => s + Number(p.cod_amount || 0), 0) }), [statsData]);
 
   // แจ้งเตือน: พัสดุที่มีเลข Tracking แต่ Flash ยังไม่รับเข้าระบบ
@@ -5046,13 +5058,12 @@ export default function FlashBackend() {
               <button onClick={() => shiftMonth(1)} title="เดือนถัดไป" style={{ padding: "6px 9px", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#64748b", lineHeight: 1 }}>›</button>
             </div>
             {/* กลาง: กรอง + ปริ้น */}
-            <select aria-label="กรองขนส่ง" value={carrierFilter} onChange={e => { setCarrierFilter(e.target.value); setPage(0); }} style={{ padding: "9px 10px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 12 }}>
-              <option value="">ทุกขนส่ง</option>
-              {CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
+            <div role="group" aria-label="การจัดส่งแยกขนส่ง" style={{ display: "flex", gap: 6 }}>
+              {CARRIERS.map(c => <button key={c.value} aria-pressed={carrierFilter === c.value} onClick={() => switchShippingCarrier(c.value)} style={{ padding: "10px 16px", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer", background: carrierFilter === c.value ? "#dc2626" : "#fff", color: carrierFilter === c.value ? "#fff" : "#475569" }}>{c.label}</button>)}
+            </div>
             {shops?.length > 0 && <select value={selectedShopFilter} onChange={e => { setSelectedShopFilter(e.target.value); setPage(0); }} style={{ padding: "9px 10px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 12, fontFamily: "inherit", fontWeight: 600, color: selectedShopFilter ? "#dc2626" : "#64748b" }}>
               <option value="">🏪 ทุกร้าน</option>
-              {shops.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {shops.filter(s => s.is_active && (s.carrier || "flash") === carrierFilter).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>}
             <select value={codFilter} onChange={e => { setCodFilter(e.target.value); setPage(0); }} style={{ padding: "9px 10px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 12, fontFamily: "inherit", fontWeight: 600, color: codFilter ? "#d97706" : "#64748b" }}>
               <option value="">💰 ทุกยอด</option>
@@ -5102,7 +5113,7 @@ export default function FlashBackend() {
             </div>
 
             {/* 🔔 แจ้งเตือน: พัสดุยังไม่เข้าระบบ Flash */}
-            {notInFlash.length > 0 && (
+            {carrierFilter === "flash" && notInFlash.length > 0 && (
               <div style={{ margin: "0 24px 12px", background: "linear-gradient(135deg,#fef2f2,#fff7ed)", border: "1.5px solid #fca5a5", borderRadius: 12, overflow: "hidden" }}>
                 <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => { setShowNotifPanel(v => !v); if (showNotifPanel) setNotifSelected(new Set()); }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -5257,7 +5268,7 @@ export default function FlashBackend() {
                       <thead><tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
                         {perm.status && <th style={{ padding: "10px 8px", width: 36 }}><input type="checkbox" checked={paged.length > 0 && paged.every(p => selectedIds.has(p.id))} onChange={toggleSelectAll} style={{ cursor: "pointer" }} /></th>}
                         <th style={{ padding: "10px 8px", width: 30, color: "#64748b", fontSize: 11 }}>🖨️</th>
-                        {["วันที่", "เวลา", "ลูกค้า", "เบอร์โทรศัพท์", "ที่อยู่", "สถานะ", "สถานะ Flash", "หมายเลขการติดตาม", ...(perm.viewCOD ? ["COD"] : []), "ร้านค้า", "การปฏิบัติ"].map((h, i) => <th key={i} style={{ padding: "10px 10px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
+                        {["วันที่", "เวลา", "ลูกค้า", "เบอร์โทรศัพท์", "ที่อยู่", "สถานะ", carrierFilter === "jnt" ? "สถานะ J&T" : "สถานะ Flash", "หมายเลขการติดตาม", ...(perm.viewCOD ? ["COD"] : []), "ร้านค้า", "การปฏิบัติ"].map((h, i) => <th key={i} style={{ padding: "10px 10px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
                       </tr></thead>
                       <tbody>{paged.map((p, i) => { const d = new Date(p.created_at); return (
                         <tr key={p.id} style={{ borderBottom: "1px solid #f1f5f9", background: selectedIds.has(p.id) ? "#eef2ff" : i % 2 ? "#fafafa" : "#fff" }}>
@@ -5321,7 +5332,7 @@ export default function FlashBackend() {
                 {activePage === "import-jnt" && <p style={{ color: "#dc2626", fontSize: 14 }}>เลือกร้านที่ผูกบัญชี VIP ของ J&T ระบบจะใช้บัญชีของร้านเมื่อสร้างเลขพัสดุ และนำหมายเหตุไปแสดงบนใบลาเบล</p>}
               </div>
               <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                <ImportModal key={activePage} carrier={activePage === "import-jnt" ? "jnt" : "flash"} user={user} shops={shops} onClose={() => setActivePage("parcels")} onSave={() => { setActivePage("parcels"); loadParcels(); }} inline />
+                <ImportModal key={activePage} carrier={activePage === "import-jnt" ? "jnt" : "flash"} user={user} shops={shops} onClose={() => setActivePage("parcels")} onSave={() => { switchShippingCarrier(activePage === "import-jnt" ? "jnt" : "flash"); setActivePage("parcels"); loadParcels(); }} inline />
               </div>
             </div>
           )}
@@ -5510,7 +5521,7 @@ export default function FlashBackend() {
       </div></div>}
 
       {/* MODALS */}
-      {showForm && <ParcelForm parcel={editParcel} user={user} shops={shops} salePersons={[...new Set(parcels.map(p => (p.sale_person || "").trim()).filter(Boolean))].sort()} onClose={() => setShowForm(false)} onSave={() => { setShowForm(false); loadParcels(); }} />}
+      {showForm && <ParcelForm initialCarrier={carrierFilter} parcel={editParcel} user={user} shops={shops} salePersons={[...new Set(parcels.map(p => (p.sale_person || "").trim()).filter(Boolean))].sort()} onClose={() => setShowForm(false)} onSave={() => { setShowForm(false); loadParcels(); }} />}
     </div>
   );
 }
