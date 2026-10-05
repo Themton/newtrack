@@ -1444,7 +1444,8 @@ export default function FlashBackend() {
   }, [user, activePage]);
   const [selectedShopFilter, setSelectedShopFilter] = useState("");
   const [codFilter, setCodFilter] = useState("");
-  const [carrierFilter, setCarrierFilter] = useState("flash");
+  const isShippingPage = activePage === "parcels" || activePage === "parcels-jnt";
+  const carrierFilter = activePage === "parcels-jnt" ? "jnt" : "flash";
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [notifSelected, setNotifSelected] = useState(new Set());
   const [upsellShop, setUpsellShop] = useState(""); // ตัวกรองร้านค้าในตาราง
@@ -1688,7 +1689,7 @@ export default function FlashBackend() {
     return carrier === carrierFilter;
   }), [parcels, shops, carrierFilter]);
   const switchShippingCarrier = (carrier) => {
-    setCarrierFilter(carrier);
+    setActivePage(carrier === "jnt" ? "parcels-jnt" : "parcels");
     setSelectedShopFilter("");
     setStatusFilter("ALL");
     setCodFilter("");
@@ -2439,7 +2440,8 @@ export default function FlashBackend() {
 
   const MENU = [
     ...(perm.dashboard ? [{ key: "dashboard", label: "Dashboard", icon: "📊" }] : []),
-    { key: "parcels", label: "การจัดส่ง", icon: "📦" },
+    { key: "parcels", label: "การจัดส่ง Flash", icon: "📦" },
+    { key: "parcels-jnt", label: "การจัดส่ง J&T", icon: "📦" },
     { key: "report", label: "รายงานสถานะ", icon: "🚚" },
     { key: "notinflash", label: "แฟลชยังไม่เข้ารับ", icon: "📭" },
     ...(perm.status ? [{ key: "problems", label: "พัสดุมีปัญหา", icon: "⚠️" }] : []),
@@ -5020,7 +5022,7 @@ export default function FlashBackend() {
           {MENU.map(m => {
             const badge = m.key === "parcels" ? notInFlash.length : m.key === "notinflash" ? (isDemo ? notInFlash.length : notInFlashAll.length) : 0;
             return (
-            <button key={m.key} onClick={() => setActivePage(m.key)} style={{
+            <button key={m.key} onClick={() => m.key === "parcels" || m.key === "parcels-jnt" ? switchShippingCarrier(m.key === "parcels-jnt" ? "jnt" : "flash") : setActivePage(m.key)} style={{
               width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, marginBottom: 4,
               background: activePage === m.key ? "rgba(239,68,68,.15)" : "transparent",
               color: activePage === m.key ? "#f87171" : "rgba(255,255,255,.6)",
@@ -5043,7 +5045,7 @@ export default function FlashBackend() {
       {/* ═══ MAIN CONTENT ═══ */}
       <div style={{ flex: 1, marginLeft: 200, minHeight: "100vh" }}>
         {/* TOP BAR */}
-        {activePage === "parcels" && (
+        {isShippingPage && (
           <div style={{ background: "#fff", padding: "14px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 50, flexWrap: "wrap" }}>
             {/* ซ้าย: ค้นหา */}
             <div style={{ position: "relative", minWidth: 180, flex: 1 }}>
@@ -5058,9 +5060,7 @@ export default function FlashBackend() {
               <button onClick={() => shiftMonth(1)} title="เดือนถัดไป" style={{ padding: "6px 9px", background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: "#64748b", lineHeight: 1 }}>›</button>
             </div>
             {/* กลาง: กรอง + ปริ้น */}
-            <div role="group" aria-label="การจัดส่งแยกขนส่ง" style={{ display: "flex", gap: 6 }}>
-              {CARRIERS.map(c => <button key={c.value} aria-pressed={carrierFilter === c.value} onClick={() => switchShippingCarrier(c.value)} style={{ padding: "10px 16px", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer", background: carrierFilter === c.value ? "#dc2626" : "#fff", color: carrierFilter === c.value ? "#fff" : "#475569" }}>{c.label}</button>)}
-            </div>
+            <strong style={{ fontSize: 16, color: "#dc2626" }}>การจัดส่ง {carrierFilter === "jnt" ? "J&T" : "Flash"}</strong>
             {shops?.length > 0 && <select value={selectedShopFilter} onChange={e => { setSelectedShopFilter(e.target.value); setPage(0); }} style={{ padding: "9px 10px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 12, fontFamily: "inherit", fontWeight: 600, color: selectedShopFilter ? "#dc2626" : "#64748b" }}>
               <option value="">🏪 ทุกร้าน</option>
               {shops.filter(s => s.is_active && (s.carrier || "flash") === carrierFilter).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -5077,9 +5077,9 @@ export default function FlashBackend() {
           </div>
         )}
 
-        <div style={{ padding: activePage === "parcels" ? "0" : "24px" }}>
+        <div style={{ padding: isShippingPage ? "0" : "24px" }}>
           {/* ═══ PARCELS PAGE ═══ */}
-          {activePage === "parcels" && (<>
+          {isShippingPage && (<>
             {carrierRequest && <div style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div role="dialog" aria-modal="true" aria-labelledby="carrier-title" style={{ background: "#fff", padding: 24, borderRadius: 16, width: "90%", maxWidth: 420 }}>
                 <h3 id="carrier-title" style={{ marginTop: 0 }}>สร้างเลขพัสดุ</h3>
@@ -5332,7 +5332,7 @@ export default function FlashBackend() {
                 {activePage === "import-jnt" && <p style={{ color: "#dc2626", fontSize: 14 }}>เลือกร้านที่ผูกบัญชี VIP ของ J&T ระบบจะใช้บัญชีของร้านเมื่อสร้างเลขพัสดุ และนำหมายเหตุไปแสดงบนใบลาเบล</p>}
               </div>
               <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                <ImportModal key={activePage} carrier={activePage === "import-jnt" ? "jnt" : "flash"} user={user} shops={shops} onClose={() => setActivePage("parcels")} onSave={() => { switchShippingCarrier(activePage === "import-jnt" ? "jnt" : "flash"); setActivePage("parcels"); loadParcels(); }} inline />
+                <ImportModal key={activePage} carrier={activePage === "import-jnt" ? "jnt" : "flash"} user={user} shops={shops} onClose={() => switchShippingCarrier(activePage === "import-jnt" ? "jnt" : "flash")} onSave={() => { switchShippingCarrier(activePage === "import-jnt" ? "jnt" : "flash"); loadParcels(); }} inline />
               </div>
             </div>
           )}
