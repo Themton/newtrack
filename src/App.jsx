@@ -3,6 +3,7 @@ import ADDR_DB, { PROVINCES } from "./addr.js";
 import { shopSenderLocation } from "./shopSenderLocation.js";
 import ShopAddressFields from "./ShopAddressFields.jsx";
 import JtPickupAlert from "./JtPickupAlert.jsx";
+import { jtAddress } from "./jtAddress.js";
 import { shopCarrierKey, otherCarrierDefaults, hasCarrierDefault } from "./shopDefaults.js";
 import { jtLabelDetails } from "./jtLabelDetails.js";
 
@@ -87,8 +88,8 @@ const jtApi = {
       payType: "PP_PM", expressType: "EZ", deliveryType: 1,
       shopId: options.shopId, shopName: options.shopName, goodsValue: Number(parcel.declared_value || parcel.sale_price || 0).toFixed(2),
       isSmallEcom: "0", createOrderTime: dateTime, sendStartTime: dateTime, sendEndTime: endTime,
-      sender: { name: parcel.sender_name, postCode: String(parcel.sender_postal), mobile: parcel.sender_phone, city: parcel.sender_district, prov: parcel.sender_province, area: parcel.sender_subdistrict || "", address: parcel.sender_address || parcel.sender_name, countryCode: "THA" },
-      receiver: { name: parcel.receiver_name, postCode: String(parcel.receiver_postal), mobile: parcel.receiver_phone, city: parcel.receiver_district, prov: parcel.receiver_province, area: parcel.receiver_subdistrict || "", address: parcel.receiver_address || parcel.receiver_name, countryCode: "THA" },
+      sender: jtAddress(parcel, "sender"),
+      receiver: jtAddress(parcel, "receiver"),
       packageInfo: { packageQuantity: 1, weight: Number(Number(parcel.weight).toFixed(3)), ...(parcel.length ? { length: Number(parcel.length) } : {}), ...(parcel.width ? { width: Number(parcel.width) } : {}), ...(parcel.height ? { height: Number(parcel.height) } : {}) },
       ...(Number(parcel.declared_value || parcel.sale_price) > 0 ? { items: [{ itemName: (parcel.item_desc || "สินค้า").slice(0, 80), number: Number(parcel.quantity || 1), itemDesc: (parcel.item_desc || "").slice(0,200), itemValue: Number(parcel.declared_value || parcel.sale_price) }] } : {}),
       ...(parcel.cod_enabled ? { codInfo: { codValue: Number(parcel.cod_amount || 0).toFixed(2) } } : {}),
