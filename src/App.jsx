@@ -3,6 +3,7 @@ import ADDR_DB, { PROVINCES } from "./addr.js";
 import { shopSenderLocation } from "./shopSenderLocation.js";
 import ShopAddressFields from "./ShopAddressFields.jsx";
 import JtPickupAlert from "./JtPickupAlert.jsx";
+import { jtReportStatus, reportParcels, matchesJtReport } from "./jtReportStatus.js";
 import { jtAddress } from "./jtAddress.js";
 import { jtAddressErrors } from "./jtAddressErrors.js";
 import { matchesTracking } from "./trackingSearch.js";
@@ -1473,6 +1474,295 @@ const ActivityLogPage = () => {
   );
 };
 
+function ReportPage({ parcels, shops, rptPerPage, setRptPerPage, rptCarrier, rptShop, setRptShop, rptFilter, setRptFilter, rptSearch, setRptSearch, rptPage, setRptPage, month, setMonth, loadParcels, perm, setViewParcel }) {
+    const RPT_PER = rptPerPage;
+    const isJnt = rptCarrier === "jnt";
+    const carrierName = isJnt ? "J&T" : "Flash";
+
+    // เฉพาะพัสดุที่มีเลข Tracking
+    const tracked = useMemo(() => reportParcels(parcels, rptCarrier), [parcels, rptCarrier]);
+
+    const FLASH_TABS = [
+      { key: "ALL", label: "ทั้งหมด", icon: "📋", color: "#4f46e5" },
+      { key: "สร้างรายการ", label: "สร้างรายการ", icon: "📝", color: "#f59e0b" },
+      { key: "รับพัสดุแล้ว", label: "รับพัสดุแล้ว", icon: "📬", color: "#0ea5e9" },
+      { key: "ขนส่ง", label: "ในระบบขนส่ง", icon: "🚛", color: "#8b5cf6" },
+      { key: "คงคลัง", label: "พัสดุคงคลัง", icon: "🏬", color: "#0891b2" },
+      { key: "มีปัญหา", label: "พัสดุมีปัญหา", icon: "⚠️", color: "#f59e0b" },
+      { key: "กำลังจัดส่ง", label: "กำลังจัดส่ง", icon: "🛵", color: "#3b82f6" },
+      { key: "เซ็นรับแล้ว", label: "เซ็นรับแล้ว", icon: "✅", color: "#10b981" },
+      { key: "RETURN_ALL", label: "ตีกลับทั้งหมด", icon: "↩️", color: "#ef4444" },
+      { key: "นำส่งไม่สำเร็จ", label: "นำส่งไม่สำเร็จ", icon: "❌", color: "#f97316" },
+      { key: "ส่งคืน", label: "กำลังส่งคืน", icon: "🔄", color: "#ef4444" },
+      { key: "คืนสำเร็จ", label: "คืนสำเร็จ", icon: "📦", color: "#6b7280" },
+      { key: "OTHER", label: "อื่นๆ", icon: "❓", color: "#78716c" },
+    ];
+
+    const RETURN_STATUSES = ["ส่งคืน", "คืนสำเร็จ", "นำส่งไม่สำเร็จ", "ตีกลับ", "ส่งกลับ"];
+    const KNOWN_KEYS = ["รับพัสดุแล้ว", "ขนส่ง", "กำลังจัดส่ง", "เซ็นรับแล้ว", "นำส่งไม่สำเร็จ", "ส่งคืน", "คืนสำเร็จ", "ตีกลับแล้ว", "คงคลัง", "มีปัญหา"];
+
+    // match สถานะ Flash ทุกรูปแบบ (API คืนชื่อต่างกัน)
+    const matchStatus = (fs, key) => {
+      if (isJnt) return matchesJtReport(fs, key);
+      if (!fs) return false;
+      if (key === "ขนส่ง") return fs.includes("ขนส่ง") && !fs.includes("ไม่สำเร็จ") && !fs.includes("คืน");
+      if (key === "รับพัสดุแล้ว") return fs.includes("รับพัสดุ") || fs.includes("รับสินค้า");
+      if (key === "กำลังจัดส่ง") return fs.includes("กำลังจัดส่ง") || fs.includes("นำจ่าย") || fs.includes("รอการนำส่ง") || fs.includes("ระหว่างการจัดส่ง");
+      if (key === "เซ็นรับแล้ว") return fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ");
+      if (key === "นำส่งไม่สำเร็จ") return fs.includes("ไม่สำเร็จ");
+      if (key === "ส่งคืน") return (fs.includes("ส่งคืน") || fs.includes("ส่งกลับ")) && !fs.includes("สำเร็จ");
+      if (key === "คืนสำเร็จ") return fs.includes("คืนสำเร็จ");
+      if (key === "คงคลัง") return fs.includes("คงคลัง");
+      if (key === "มีปัญหา") return fs.includes("มีปัญหา");
+      if (key === "ตีกลับแล้ว") return fs.includes("ตีกลับ");
+      if (key === "OTHER") return !KNOWN_KEYS.some(k => matchStatus(fs, k));
+      return fs.includes(key);
+    };
+
+    // รวมสถานะที่มีเลขต่อท้ายไม่ซ้ำ (เช่น "พัสดุตีกลับแล้ว Returned Tracking No. THxxxx") ให้เป็นกลุ่มเดียว
+    const normLabel = (fs) => (fs || "").replace(/Returned Tracking No\.?.*$/i, "").replace(/\s+/g, " ").trim();
+
+    const filtered = useMemo(() => {
+      let list = tracked;
+      if (rptShop) list = list.filter(p => p.shop_id === rptShop);
+      if (rptFilter !== "ALL") {
+        if (isJnt && !rptFilter.startsWith("GROUP::")) list = list.filter(p => matchesJtReport(p.flash_status, rptFilter));
+        else if (rptFilter === "สร้างรายการ") list = list.filter(p => !p.flash_status || p.flash_status === "" || p.flash_status === "สร้างรายการ");
+        else if (rptFilter === "RETURN_ALL") list = list.filter(p => RETURN_STATUSES.some(s => (p.flash_status || "").includes(s)));
+        else if (rptFilter === "OTHER") list = list.filter(p => p.flash_status && p.flash_status !== "สร้างรายการ" && !KNOWN_KEYS.some(k => matchStatus(p.flash_status, k)));
+        else if (rptFilter.startsWith("GROUP::")) { const lbl = rptFilter.slice(7); list = list.filter(p => normLabel(p.flash_status) === lbl); }
+        else list = list.filter(p => matchStatus(p.flash_status, rptFilter));
+      }
+      if (rptSearch) {
+        const q = rptSearch.toLowerCase();
+        list = list.filter(p => (p.receiver_name || "").toLowerCase().includes(q) || (p.receiver_phone || "").includes(q) || (p.flash_pno || "").toLowerCase().includes(q) || (p.flash_detail || "").toLowerCase().includes(q));
+      }
+      return list;
+    }, [tracked, rptFilter, rptShop, rptSearch, isJnt]);
+
+    const rptPaged = filtered.slice(rptPage * RPT_PER, (rptPage + 1) * RPT_PER);
+    const rptTotalPages = Math.ceil(filtered.length / RPT_PER);
+
+    // นับแยกสถานะ — รอบเดียว O(n) แทน 11 รอบ
+    const statusCounts = useMemo(() => {
+      const list = rptShop ? tracked.filter(p => p.shop_id === rptShop) : tracked;
+      const counts = { ALL: list.length, "สร้างรายการ": 0, "รับพัสดุแล้ว": 0, "ขนส่ง": 0, "คงคลัง": 0, "มีปัญหา": 0, "กำลังจัดส่ง": 0, "เซ็นรับแล้ว": 0, RETURN_ALL: 0, "ตีกลับแล้ว": 0, "นำส่งไม่สำเร็จ": 0, "ส่งคืน": 0, "คืนสำเร็จ": 0, OTHER: 0 };
+      for (const p of list) {
+        const fs = p.flash_status;
+        if (isJnt) {
+          const group = jtReportStatus(fs);
+          counts[group] = (counts[group] || 0) + 1;
+          if (matchesJtReport(fs, "RETURN_ALL")) counts.RETURN_ALL++;
+          continue;
+        }
+        if (!fs || fs === "" || fs === "สร้างรายการ") { counts["สร้างรายการ"]++; }
+        else if (matchStatus(fs, "เซ็นรับแล้ว")) { counts["เซ็นรับแล้ว"]++; }
+        else if (matchStatus(fs, "ขนส่ง")) { counts["ขนส่ง"]++; }
+        else if (matchStatus(fs, "รับพัสดุแล้ว")) { counts["รับพัสดุแล้ว"]++; }
+        else if (matchStatus(fs, "กำลังจัดส่ง")) { counts["กำลังจัดส่ง"]++; }
+        else if (matchStatus(fs, "คืนสำเร็จ")) { counts["คืนสำเร็จ"]++; counts.RETURN_ALL++; }
+        else if (matchStatus(fs, "นำส่งไม่สำเร็จ")) { counts["นำส่งไม่สำเร็จ"]++; counts.RETURN_ALL++; }
+        else if (matchStatus(fs, "ส่งคืน")) { counts["ส่งคืน"]++; counts.RETURN_ALL++; }
+        else if (matchStatus(fs, "ตีกลับแล้ว")) { counts["ตีกลับแล้ว"]++; counts.RETURN_ALL++; }
+        else if (matchStatus(fs, "คงคลัง")) { counts["คงคลัง"]++; }
+        else if (matchStatus(fs, "มีปัญหา")) { counts["มีปัญหา"]++; }
+        else { counts.OTHER++; }
+      }
+      return counts;
+    }, [tracked, rptShop, isJnt]);
+
+    // แตกสถานะ Flash จริงทุกตัวที่ไม่เข้ากลุ่มหลัก → แสดงเป็นการ์ดของตัวเอง (ให้ตรงกับ Flash ครบทุกสถานะ)
+    const otherStatusList = useMemo(() => {
+      const list = rptShop ? tracked.filter(p => p.shop_id === rptShop) : tracked;
+      const m = {};
+      for (const p of list) {
+        const fs = p.flash_status;
+        if (!fs || fs === "สร้างรายการ") continue;
+        if (isJnt) {
+          if (jtReportStatus(fs) === "OTHER") { const lbl = normLabel(fs); m[lbl] = (m[lbl] || 0) + 1; }
+          continue;
+        }
+        if (!KNOWN_KEYS.some(k => matchStatus(fs, k))) { const lbl = normLabel(fs); m[lbl] = (m[lbl] || 0) + 1; }
+      }
+      return Object.entries(m).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+    }, [tracked, rptShop]);
+
+    const getStatusStyle = (fs) => {
+      const map = {
+        "รับพัสดุแล้ว": { bg: "#e0f2fe", color: "#0369a1" },
+        "อยู่ในระบบขนส่ง": { bg: "#ede9fe", color: "#6d28d9" },
+        "กำลังจัดส่ง": { bg: "#dbeafe", color: "#1d4ed8" },
+        "เซ็นรับแล้ว": { bg: "#d1fae5", color: "#065f46" },
+        "ส่งคืน": { bg: "#fee2e2", color: "#991b1b" },
+        "คืนสำเร็จ": { bg: "#f3f4f6", color: "#374151" },
+      };
+      const group = isJnt ? jtReportStatus(fs) : fs;
+      return map[group === "ขนส่ง" ? "อยู่ในระบบขนส่ง" : group] || { bg: "#fef3c7", color: "#92400e" };
+    };
+
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#111" }}>🚚 รายงานสถานะพัสดุ {carrierName}</h2>
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <input aria-label="เดือนรายงานสถานะ" type="month" value={month} onChange={e => { if (e.target.value) { setMonth(e.target.value); setRptPage(0); } }} />
+          </div>
+          <p style={{ margin: "8px 0 0", fontSize: 14, color: "#6b7280" }}>{isJnt ? "สถานะล่าสุดที่บันทึกจาก J&T · ตรวจซ้ำประมาณ 2 นาทีหลังจบรอบขณะเปิดเว็บ · ไม่มีข้อมูลไม่ถือว่ายังไม่เข้ารับ" : "ติดตามสถานะขนส่งแบบเรียลไทม์ — อัพเดตอัตโนมัติทุก ~2 นาที (ระบบหลังบ้าน)"}</p>
+          <div style={{ marginTop: 12, padding: "10px 16px", background: "#fef2f2", borderRadius: 10, border: "1px solid #fecaca", fontSize: 12, color: "#7f1d1d", display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700 }}>↩️ ตีกลับทั้งหมด</span><span>{isJnt ? "= กำลังส่งคืน + คืนสำเร็จ (ไม่รวมนำส่งไม่สำเร็จ)" : "= รวมทุกสถานะตีกลับ"}</span>
+            <span style={{ borderLeft: "1px solid #fca5a5", paddingLeft: 12 }}>❌ <b>นำส่งไม่สำเร็จ</b> = ส่งไม่ได้ (ไม่มีคนรับ/ปฏิเสธ/ที่อยู่ผิด)</span>
+            <span style={{ borderLeft: "1px solid #fca5a5", paddingLeft: 12 }}>🔄 <b>กำลังส่งคืน</b> = พัสดุกำลังส่งกลับ</span>
+            <span style={{ borderLeft: "1px solid #fca5a5", paddingLeft: 12 }}>📦 <b>คืนสำเร็จ</b> = ส่งคืนถึงผู้ส่งแล้ว</span>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
+          {[...FLASH_TABS.map(t => isJnt && t.key === "สร้างรายการ" ? { ...t, label: "ยังไม่พบการเข้ารับ" } : t), ...(isJnt ? [{ key: "UNKNOWN", label: "ยังไม่มีข้อมูลสถานะ", icon: "⏳", color: "#64748b" }] : [])].map(t => {
+            const cnt = statusCounts[t.key] || 0;
+            const active = rptFilter === t.key;
+            return (
+              <div key={t.key} onClick={() => { setRptFilter(t.key); setRptPage(0); }} style={{
+                background: active ? t.color : "#fff", color: active ? "#fff" : "#111",
+                borderRadius: 12, padding: "14px 16px", border: active ? "none" : "1px solid #e5e7eb",
+                cursor: "pointer", transition: "all .15s",
+              }}>
+                <div style={{ fontSize: 11, opacity: active ? .85 : .6, marginBottom: 4 }}>{t.icon} {t.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 800 }}>{cnt}</div>
+              </div>
+            );
+          })}
+          {otherStatusList.map(o => {
+            const key = "GROUP::" + o.label;
+            const active = rptFilter === key;
+            return (
+              <div key={key} title={`สถานะจริงจาก ${carrierName}`} onClick={() => { setRptFilter(key); setRptPage(0); }} style={{
+                background: active ? "#0d9488" : "#fff", color: active ? "#fff" : "#111",
+                borderRadius: 12, padding: "14px 16px", border: active ? "none" : "1px dashed #5eead4",
+                cursor: "pointer", transition: "all .15s",
+              }}>
+                <div style={{ fontSize: 11, opacity: active ? .85 : .6, marginBottom: 4 }}>🏷️ {o.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 800 }}>{o.count}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Search + Filter */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, position: "relative", minWidth: 200 }}>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, opacity: .4 }}>🔍</span>
+            <input value={rptSearch} onChange={e => { setRptSearch(e.target.value); setRptPage(0); }} placeholder="ค้นหา ชื่อ, เบอร์, เลข Tracking..." style={{ width: "100%", padding: "10px 12px 10px 36px", border: "1.5px solid #e5e7eb", borderRadius: 10, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+          </div>
+          {shops?.length > 0 && (
+            <select value={rptShop} onChange={e => { setRptShop(e.target.value); setRptPage(0); }} style={{ padding: "10px 14px", border: "1.5px solid #e5e7eb", borderRadius: 10, fontSize: 13, fontFamily: "inherit", fontWeight: 600, color: rptShop ? "#dc2626" : "#6b7280" }}>
+              <option value="">🏪 ทุกร้าน</option>
+              {shops.filter(s => (isJnt ? s.carrier === "jnt" : s.carrier !== "jnt")).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
+          <button onClick={loadParcels} style={{ padding: "10px 16px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>🔄 รีเฟรช</button>
+          <button onClick={() => {
+            if (!perm.exportData) return; const data = filtered;
+            if (!data.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
+            const bom = "\uFEFF";
+            const headers = ["ลำดับ","วันที่","ลูกค้า","เบอร์โทร","เลข Tracking","Sort Code",`สถานะ ${carrierName}`,"รายละเอียดล่าสุด","อัพเดตล่าสุด","สถานะระบบ",...(perm.viewCOD ? ["COD","ยอด COD"] : []),"ร้านค้า","ที่อยู่","ตำบล","อำเภอ","จังหวัด","รหัสไปรษณีย์","หมายเหตุ"];
+            const rows = data.map((p, i) => {
+              const shop = shops?.find(s => s.id === p.shop_id);
+              return [i+1, new Date(p.created_at).toLocaleString("th-TH"), p.receiver_name, p.receiver_phone, p.flash_pno, p.flash_sort_code||"", p.flash_status||(isJnt ? "ยังไม่มีข้อมูลสถานะ" : "สร้างรายการ"), p.flash_detail||"", fmtFlashDate(p.flash_updated_at, "full"), p.status, ...(perm.viewCOD ? [p.cod_enabled?"ใช่":"ไม่", p.cod_amount||0] : []), shop?.name||"", p.receiver_address, p.receiver_subdistrict, p.receiver_district, p.receiver_province, p.receiver_postal, p.remark||""];
+            });
+            const csv = bom + [headers, ...rows].map(r => r.map(v => `"${String(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+            const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${rptCarrier}-status-${rptFilter === "ALL" ? "ทั้งหมด" : rptFilter}-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+          }} style={{ padding: "10px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700 }} disabled={!perm.exportData}>📤 Export ({filtered.length})</button>
+        </div>
+
+        {/* Table */}
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+          {!rptPaged.length ? (
+            <div style={{ padding: 50, textAlign: "center", color: "#9ca3af" }}>
+              <div style={{ fontSize: 36 }}>📭</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8 }}>ไม่พบพัสดุในสถานะนี้</div>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "#f9fafb", borderBottom: "2px solid #e5e7eb" }}>
+                    {["#", "วันที่", "ลูกค้า", "เบอร์โทร", "เลข Tracking", "Sort Code", `สถานะ ${carrierName}`, "รายละเอียดล่าสุด", "อัพเดต", "สถานะระบบ", ...(perm.viewCOD ? ["COD"] : []), "ร้านค้า"].map((h, i) => (
+                      <th key={i} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, color: "#6b7280", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rptPaged.map((p, i) => {
+                    const fs = (isJnt ? p.flash_status : cleanFlashStatus(p.flash_status)) || (isJnt ? "ยังไม่มีข้อมูลสถานะ" : "สร้างรายการ");
+                    const fStyle = getStatusStyle(fs);
+                    const sysStatus = { draft: "📝 เตรียม", created: "✅ สร้างเลข", printed: "🖨️ ปริ้น", cancelled: "❌ ยกเลิก" }[p.status] || p.status;
+                    const shop = shops?.find(s => s.id === p.shop_id);
+                    const d = new Date(p.created_at);
+                    return (
+                      <tr key={p.id} style={{ borderBottom: "1px solid #f3f4f6", background: i % 2 ? "#fafafa" : "#fff" }} onClick={() => setViewParcel(p)}>
+                        <td style={{ padding: "9px 12px", color: "#9ca3af", fontSize: 11 }}>{rptPage * RPT_PER + i + 1}</td>
+                        <td style={{ padding: "9px 12px", fontSize: 12, whiteSpace: "nowrap" }}>{d.toLocaleDateString("th-TH", { day: "2-digit", month: "short" })}</td>
+                        <td style={{ padding: "9px 12px", fontWeight: 600, cursor: "pointer", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.receiver_name}</td>
+                        <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12 }}>{p.receiver_phone}</td>
+                        <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#0ea5e9", fontWeight: 600 }}>{p.flash_pno}</td>
+                        <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 11, color: "#6b7280" }}>{p.flash_sort_code || "—"}</td>
+                        <td style={{ padding: "9px 12px" }}>
+                          <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: fStyle.bg, color: fStyle.color, whiteSpace: "nowrap" }}>{fs}</span>
+                        </td>
+                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#374151", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.flash_detail || ""}>{p.flash_detail || "—"}</td>
+                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>{fmtFlashDate(p.flash_updated_at) || "—"}</td>
+                        <td style={{ padding: "9px 12px", fontSize: 12 }}>{sysStatus}</td>
+                        {perm.viewCOD && <td style={{ padding: "9px 12px", fontWeight: 700, color: p.cod_enabled ? "#b45309" : "#d1d5db" }}>{p.cod_enabled ? `฿${Number(p.cod_amount || 0).toLocaleString()}` : "—"}</td>}
+                        <td style={{ padding: "9px 12px", fontSize: 12, color: "#6b7280" }}>{shop?.name || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {rptTotalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, padding: 12, borderTop: "1px solid #f3f4f6" }}>
+              <button disabled={!rptPage} onClick={() => setRptPage(p => p - 1)} style={{ padding: "6px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", cursor: !rptPage ? "not-allowed" : "pointer", opacity: !rptPage ? .4 : 1, fontSize: 13 }}>◀</button>
+              <span style={{ fontSize: 12, color: "#6b7280" }}>{rptPage + 1}/{rptTotalPages} ({filtered.length})</span>
+              <button disabled={rptPage >= rptTotalPages - 1} onClick={() => setRptPage(p => p + 1)} style={{ padding: "6px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", cursor: rptPage >= rptTotalPages - 1 ? "not-allowed" : "pointer", opacity: rptPage >= rptTotalPages - 1 ? .4 : 1, fontSize: 13 }}>▶</button>
+              <select value={rptPerPage} onChange={e => { setRptPerPage(Number(e.target.value)); setRptPage(0); }} style={{ padding: "6px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, fontFamily: "inherit", color: "#6b7280" }}>
+                <option value={100}>100 / หน้า</option>
+                <option value={300}>300 / หน้า</option>
+                <option value={500}>500 / หน้า</option>
+              </select>
+            </div>
+          )}
+        </div>
+
+        {/* Summary Footer */}
+        <div style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ background: "#ecfdf5", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
+            <div style={{ fontSize: 11, color: "#065f46", marginBottom: 2 }}>✅ จัดส่งสำเร็จ</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#059669" }}>{statusCounts["เซ็นรับแล้ว"]}</div>
+          </div>
+          <div style={{ background: "#dbeafe", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
+            <div style={{ fontSize: 11, color: "#1e40af", marginBottom: 2 }}>🚛 อยู่ระหว่างจัดส่ง</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#2563eb" }}>{statusCounts["รับพัสดุแล้ว"] + statusCounts["ขนส่ง"] + statusCounts["กำลังจัดส่ง"]}</div>
+          </div>
+          <div style={{ background: "#fee2e2", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
+            <div style={{ fontSize: 11, color: "#991b1b", marginBottom: 2 }}>↩️ ส่งคืน/คืนสำเร็จ</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#dc2626" }}>{statusCounts["ส่งคืน"] + statusCounts["คืนสำเร็จ"]}</div>
+          </div>
+          <div style={{ background: "#fef3c7", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
+            <div style={{ fontSize: 11, color: "#92400e", marginBottom: 2 }}>📝 รอดำเนินการ</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#d97706" }}>{statusCounts["สร้างรายการ"]}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+
 export default function FlashBackend() {
   const [user, setUser] = useState(() => {
     try { const s = sessionStorage.getItem("fx_user"); return s && sessionStorage.getItem("fx_jt_session") ? JSON.parse(s) : null; } catch { return null; }
@@ -1553,6 +1843,11 @@ export default function FlashBackend() {
   const [upsellSelected, setUpsellSelected] = useState(new Set());
   const [upsellRejected, setUpsellRejected] = useState([]);
   const [rptFilter, setRptFilter] = useState("ALL");
+  const [jtRptFilter, setJtRptFilter] = useState("ALL");
+  const [jtRptSearch, setJtRptSearch] = useState("");
+  const [jtRptShop, setJtRptShop] = useState("");
+  const [jtRptPage, setJtRptPage] = useState(0);
+  const [jtRptPerPage, setJtRptPerPage] = useState(100);
   const [rptSearch, setRptSearch] = useState("");
   const [rptShop, setRptShop] = useState("");
   const [rptPage, setRptPage] = useState(0);
@@ -2541,7 +2836,8 @@ export default function FlashBackend() {
     ...(perm.dashboard ? [{ key: "dashboard", label: "Dashboard", icon: "📊" }] : []),
     { key: "parcels", label: "การจัดส่ง Flash", icon: "📦" },
     { key: "parcels-jnt", label: "การจัดส่ง J&T", icon: "📦" },
-    { key: "report", label: "รายงานสถานะ", icon: "🚚" },
+    { key: "report", label: "รายงานสถานะ Flash", icon: "🚚" },
+    { key: "report-jnt", label: "รายงานสถานะ J&T", icon: "🚚" },
     { key: "notinflash", label: "แฟลชยังไม่เข้ารับ", icon: "📭" },
     ...(perm.status ? [{ key: "problems", label: "พัสดุมีปัญหา", icon: "⚠️" }] : []),
     { key: "returnreceive", label: "รับพัสดุตีกลับ", icon: "🔁" },
@@ -3475,276 +3771,6 @@ export default function FlashBackend() {
   };
 
   // ═══ REPORT PAGE — รายงานสถานะพัสดุ Flash ═══
-  const ReportPage = () => {
-    const RPT_PER = rptPerPage;
-
-    // เฉพาะพัสดุที่มีเลข Tracking
-    const tracked = useMemo(() => parcels.filter(p => p.flash_pno && p.status !== "cancelled"), [parcels]);
-
-    const FLASH_TABS = [
-      { key: "ALL", label: "ทั้งหมด", icon: "📋", color: "#4f46e5" },
-      { key: "สร้างรายการ", label: "สร้างรายการ", icon: "📝", color: "#f59e0b" },
-      { key: "รับพัสดุแล้ว", label: "รับพัสดุแล้ว", icon: "📬", color: "#0ea5e9" },
-      { key: "ขนส่ง", label: "ในระบบขนส่ง", icon: "🚛", color: "#8b5cf6" },
-      { key: "คงคลัง", label: "พัสดุคงคลัง", icon: "🏬", color: "#0891b2" },
-      { key: "มีปัญหา", label: "พัสดุมีปัญหา", icon: "⚠️", color: "#f59e0b" },
-      { key: "กำลังจัดส่ง", label: "กำลังจัดส่ง", icon: "🛵", color: "#3b82f6" },
-      { key: "เซ็นรับแล้ว", label: "เซ็นรับแล้ว", icon: "✅", color: "#10b981" },
-      { key: "RETURN_ALL", label: "ตีกลับทั้งหมด", icon: "↩️", color: "#ef4444" },
-      { key: "นำส่งไม่สำเร็จ", label: "นำส่งไม่สำเร็จ", icon: "❌", color: "#f97316" },
-      { key: "ส่งคืน", label: "กำลังส่งคืน", icon: "🔄", color: "#ef4444" },
-      { key: "คืนสำเร็จ", label: "คืนสำเร็จ", icon: "📦", color: "#6b7280" },
-      { key: "OTHER", label: "อื่นๆ", icon: "❓", color: "#78716c" },
-    ];
-
-    const RETURN_STATUSES = ["ส่งคืน", "คืนสำเร็จ", "นำส่งไม่สำเร็จ", "ตีกลับ", "ส่งกลับ"];
-    const KNOWN_KEYS = ["รับพัสดุแล้ว", "ขนส่ง", "กำลังจัดส่ง", "เซ็นรับแล้ว", "นำส่งไม่สำเร็จ", "ส่งคืน", "คืนสำเร็จ", "ตีกลับแล้ว", "คงคลัง", "มีปัญหา"];
-
-    // match สถานะ Flash ทุกรูปแบบ (API คืนชื่อต่างกัน)
-    const matchStatus = (fs, key) => {
-      if (!fs) return false;
-      if (key === "ขนส่ง") return fs.includes("ขนส่ง") && !fs.includes("ไม่สำเร็จ") && !fs.includes("คืน");
-      if (key === "รับพัสดุแล้ว") return fs.includes("รับพัสดุ") || fs.includes("รับสินค้า");
-      if (key === "กำลังจัดส่ง") return fs.includes("กำลังจัดส่ง") || fs.includes("นำจ่าย") || fs.includes("รอการนำส่ง") || fs.includes("ระหว่างการจัดส่ง");
-      if (key === "เซ็นรับแล้ว") return fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ");
-      if (key === "นำส่งไม่สำเร็จ") return fs.includes("ไม่สำเร็จ");
-      if (key === "ส่งคืน") return (fs.includes("ส่งคืน") || fs.includes("ส่งกลับ")) && !fs.includes("สำเร็จ");
-      if (key === "คืนสำเร็จ") return fs.includes("คืนสำเร็จ");
-      if (key === "คงคลัง") return fs.includes("คงคลัง");
-      if (key === "มีปัญหา") return fs.includes("มีปัญหา");
-      if (key === "ตีกลับแล้ว") return fs.includes("ตีกลับ");
-      if (key === "OTHER") return !KNOWN_KEYS.some(k => matchStatus(fs, k));
-      return fs.includes(key);
-    };
-
-    // รวมสถานะที่มีเลขต่อท้ายไม่ซ้ำ (เช่น "พัสดุตีกลับแล้ว Returned Tracking No. THxxxx") ให้เป็นกลุ่มเดียว
-    const normLabel = (fs) => (fs || "").replace(/Returned Tracking No\.?.*$/i, "").replace(/\s+/g, " ").trim();
-
-    const filtered = useMemo(() => {
-      let list = tracked;
-      if (rptShop) list = list.filter(p => p.shop_id === rptShop);
-      if (rptFilter !== "ALL") {
-        if (rptFilter === "สร้างรายการ") list = list.filter(p => !p.flash_status || p.flash_status === "" || p.flash_status === "สร้างรายการ");
-        else if (rptFilter === "RETURN_ALL") list = list.filter(p => RETURN_STATUSES.some(s => (p.flash_status || "").includes(s)));
-        else if (rptFilter === "OTHER") list = list.filter(p => p.flash_status && p.flash_status !== "สร้างรายการ" && !KNOWN_KEYS.some(k => matchStatus(p.flash_status, k)));
-        else if (rptFilter.startsWith("GROUP::")) { const lbl = rptFilter.slice(7); list = list.filter(p => normLabel(p.flash_status) === lbl); }
-        else list = list.filter(p => matchStatus(p.flash_status, rptFilter));
-      }
-      if (rptSearch) {
-        const q = rptSearch.toLowerCase();
-        list = list.filter(p => (p.receiver_name || "").toLowerCase().includes(q) || (p.receiver_phone || "").includes(q) || (p.flash_pno || "").toLowerCase().includes(q) || (p.flash_detail || "").toLowerCase().includes(q));
-      }
-      return list;
-    }, [tracked, rptFilter, rptShop, rptSearch]);
-
-    const rptPaged = filtered.slice(rptPage * RPT_PER, (rptPage + 1) * RPT_PER);
-    const rptTotalPages = Math.ceil(filtered.length / RPT_PER);
-
-    // นับแยกสถานะ — รอบเดียว O(n) แทน 11 รอบ
-    const statusCounts = useMemo(() => {
-      const list = rptShop ? tracked.filter(p => p.shop_id === rptShop) : tracked;
-      const counts = { ALL: list.length, "สร้างรายการ": 0, "รับพัสดุแล้ว": 0, "ขนส่ง": 0, "คงคลัง": 0, "มีปัญหา": 0, "กำลังจัดส่ง": 0, "เซ็นรับแล้ว": 0, RETURN_ALL: 0, "ตีกลับแล้ว": 0, "นำส่งไม่สำเร็จ": 0, "ส่งคืน": 0, "คืนสำเร็จ": 0, OTHER: 0 };
-      for (const p of list) {
-        const fs = p.flash_status;
-        if (!fs || fs === "" || fs === "สร้างรายการ") { counts["สร้างรายการ"]++; }
-        else if (matchStatus(fs, "เซ็นรับแล้ว")) { counts["เซ็นรับแล้ว"]++; }
-        else if (matchStatus(fs, "ขนส่ง")) { counts["ขนส่ง"]++; }
-        else if (matchStatus(fs, "รับพัสดุแล้ว")) { counts["รับพัสดุแล้ว"]++; }
-        else if (matchStatus(fs, "กำลังจัดส่ง")) { counts["กำลังจัดส่ง"]++; }
-        else if (matchStatus(fs, "คืนสำเร็จ")) { counts["คืนสำเร็จ"]++; counts.RETURN_ALL++; }
-        else if (matchStatus(fs, "นำส่งไม่สำเร็จ")) { counts["นำส่งไม่สำเร็จ"]++; counts.RETURN_ALL++; }
-        else if (matchStatus(fs, "ส่งคืน")) { counts["ส่งคืน"]++; counts.RETURN_ALL++; }
-        else if (matchStatus(fs, "ตีกลับแล้ว")) { counts["ตีกลับแล้ว"]++; counts.RETURN_ALL++; }
-        else if (matchStatus(fs, "คงคลัง")) { counts["คงคลัง"]++; }
-        else if (matchStatus(fs, "มีปัญหา")) { counts["มีปัญหา"]++; }
-        else { counts.OTHER++; }
-      }
-      return counts;
-    }, [tracked, rptShop]);
-
-    // แตกสถานะ Flash จริงทุกตัวที่ไม่เข้ากลุ่มหลัก → แสดงเป็นการ์ดของตัวเอง (ให้ตรงกับ Flash ครบทุกสถานะ)
-    const otherStatusList = useMemo(() => {
-      const list = rptShop ? tracked.filter(p => p.shop_id === rptShop) : tracked;
-      const m = {};
-      for (const p of list) {
-        const fs = p.flash_status;
-        if (!fs || fs === "สร้างรายการ") continue;
-        if (!KNOWN_KEYS.some(k => matchStatus(fs, k))) { const lbl = normLabel(fs); m[lbl] = (m[lbl] || 0) + 1; }
-      }
-      return Object.entries(m).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
-    }, [tracked, rptShop]);
-
-    const getStatusStyle = (fs) => {
-      const map = {
-        "รับพัสดุแล้ว": { bg: "#e0f2fe", color: "#0369a1" },
-        "อยู่ในระบบขนส่ง": { bg: "#ede9fe", color: "#6d28d9" },
-        "กำลังจัดส่ง": { bg: "#dbeafe", color: "#1d4ed8" },
-        "เซ็นรับแล้ว": { bg: "#d1fae5", color: "#065f46" },
-        "ส่งคืน": { bg: "#fee2e2", color: "#991b1b" },
-        "คืนสำเร็จ": { bg: "#f3f4f6", color: "#374151" },
-      };
-      return map[fs] || { bg: "#fef3c7", color: "#92400e" };
-    };
-
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#111" }}>🚚 รายงานสถานะพัสดุ Flash</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>ติดตามสถานะขนส่งแบบเรียลไทม์ — อัพเดตอัตโนมัติทุก ~2 นาที (ระบบหลังบ้าน)</p>
-          <div style={{ marginTop: 12, padding: "10px 16px", background: "#fef2f2", borderRadius: 10, border: "1px solid #fecaca", fontSize: 12, color: "#7f1d1d", display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700 }}>↩️ ตีกลับทั้งหมด</span><span>= รวมทุกสถานะตีกลับ</span>
-            <span style={{ borderLeft: "1px solid #fca5a5", paddingLeft: 12 }}>❌ <b>นำส่งไม่สำเร็จ</b> = ส่งไม่ได้ (ไม่มีคนรับ/ปฏิเสธ/ที่อยู่ผิด)</span>
-            <span style={{ borderLeft: "1px solid #fca5a5", paddingLeft: 12 }}>🔄 <b>กำลังส่งคืน</b> = พัสดุกำลังส่งกลับ</span>
-            <span style={{ borderLeft: "1px solid #fca5a5", paddingLeft: 12 }}>📦 <b>คืนสำเร็จ</b> = ส่งคืนถึงผู้ส่งแล้ว</span>
-          </div>
-        </div>
-
-        {/* Summary Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
-          {FLASH_TABS.map(t => {
-            const cnt = statusCounts[t.key];
-            const active = rptFilter === t.key;
-            return (
-              <div key={t.key} onClick={() => { setRptFilter(t.key); setRptPage(0); }} style={{
-                background: active ? t.color : "#fff", color: active ? "#fff" : "#111",
-                borderRadius: 12, padding: "14px 16px", border: active ? "none" : "1px solid #e5e7eb",
-                cursor: "pointer", transition: "all .15s",
-              }}>
-                <div style={{ fontSize: 11, opacity: active ? .85 : .6, marginBottom: 4 }}>{t.icon} {t.label}</div>
-                <div style={{ fontSize: 24, fontWeight: 800 }}>{cnt}</div>
-              </div>
-            );
-          })}
-          {otherStatusList.map(o => {
-            const key = "GROUP::" + o.label;
-            const active = rptFilter === key;
-            return (
-              <div key={key} title="สถานะจริงจาก Flash" onClick={() => { setRptFilter(key); setRptPage(0); }} style={{
-                background: active ? "#0d9488" : "#fff", color: active ? "#fff" : "#111",
-                borderRadius: 12, padding: "14px 16px", border: active ? "none" : "1px dashed #5eead4",
-                cursor: "pointer", transition: "all .15s",
-              }}>
-                <div style={{ fontSize: 11, opacity: active ? .85 : .6, marginBottom: 4 }}>🏷️ {o.label}</div>
-                <div style={{ fontSize: 24, fontWeight: 800 }}>{o.count}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Search + Filter */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, position: "relative", minWidth: 200 }}>
-            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, opacity: .4 }}>🔍</span>
-            <input value={rptSearch} onChange={e => { setRptSearch(e.target.value); setRptPage(0); }} placeholder="ค้นหา ชื่อ, เบอร์, เลข Tracking..." style={{ width: "100%", padding: "10px 12px 10px 36px", border: "1.5px solid #e5e7eb", borderRadius: 10, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-          </div>
-          {shops?.length > 0 && (
-            <select value={rptShop} onChange={e => { setRptShop(e.target.value); setRptPage(0); }} style={{ padding: "10px 14px", border: "1.5px solid #e5e7eb", borderRadius: 10, fontSize: 13, fontFamily: "inherit", fontWeight: 600, color: rptShop ? "#dc2626" : "#6b7280" }}>
-              <option value="">🏪 ทุกร้าน</option>
-              {shops.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          )}
-          <button onClick={loadParcels} style={{ padding: "10px 16px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>🔄 รีเฟรช</button>
-          <button onClick={() => {
-            const data = filtered;
-            if (!data.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
-            const bom = "\uFEFF";
-            const headers = ["ลำดับ","วันที่","ลูกค้า","เบอร์โทร","เลข Tracking","Sort Code","สถานะ Flash","รายละเอียดล่าสุด","อัพเดตล่าสุด","สถานะระบบ","COD","ยอด COD","ร้านค้า","ที่อยู่","ตำบล","อำเภอ","จังหวัด","รหัสไปรษณีย์","หมายเหตุ"];
-            const rows = data.map((p, i) => {
-              const shop = shops?.find(s => s.id === p.shop_id);
-              return [i+1, new Date(p.created_at).toLocaleString("th-TH"), p.receiver_name, p.receiver_phone, p.flash_pno, p.flash_sort_code||"", p.flash_status||"สร้างรายการ", p.flash_detail||"", fmtFlashDate(p.flash_updated_at, "full"), p.status, p.cod_enabled?"ใช่":"ไม่", p.cod_amount||0, shop?.name||"", p.receiver_address, p.receiver_subdistrict, p.receiver_district, p.receiver_province, p.receiver_postal, p.remark||""];
-            });
-            const csv = bom + [headers, ...rows].map(r => r.map(v => `"${String(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
-            const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-            const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `flash-status-${rptFilter === "ALL" ? "ทั้งหมด" : rptFilter}-${new Date().toISOString().slice(0,10)}.csv`; a.click();
-          }} style={{ padding: "10px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>📤 Export ({filtered.length})</button>
-        </div>
-
-        {/* Table */}
-        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-          {!rptPaged.length ? (
-            <div style={{ padding: 50, textAlign: "center", color: "#9ca3af" }}>
-              <div style={{ fontSize: 36 }}>📭</div>
-              <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8 }}>ไม่พบพัสดุในสถานะนี้</div>
-            </div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: "#f9fafb", borderBottom: "2px solid #e5e7eb" }}>
-                    {["#", "วันที่", "ลูกค้า", "เบอร์โทร", "เลข Tracking", "Sort Code", "สถานะ Flash", "รายละเอียดล่าสุด", "อัพเดต", "สถานะระบบ", ...(perm.viewCOD ? ["COD"] : []), "ร้านค้า"].map((h, i) => (
-                      <th key={i} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, color: "#6b7280", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rptPaged.map((p, i) => {
-                    const fs = cleanFlashStatus(p.flash_status) || "สร้างรายการ";
-                    const fStyle = getStatusStyle(fs);
-                    const sysStatus = { draft: "📝 เตรียม", created: "✅ สร้างเลข", printed: "🖨️ ปริ้น", cancelled: "❌ ยกเลิก" }[p.status] || p.status;
-                    const shop = shops?.find(s => s.id === p.shop_id);
-                    const d = new Date(p.created_at);
-                    return (
-                      <tr key={p.id} style={{ borderBottom: "1px solid #f3f4f6", background: i % 2 ? "#fafafa" : "#fff" }} onClick={() => setViewParcel(p)}>
-                        <td style={{ padding: "9px 12px", color: "#9ca3af", fontSize: 11 }}>{rptPage * RPT_PER + i + 1}</td>
-                        <td style={{ padding: "9px 12px", fontSize: 12, whiteSpace: "nowrap" }}>{d.toLocaleDateString("th-TH", { day: "2-digit", month: "short" })}</td>
-                        <td style={{ padding: "9px 12px", fontWeight: 600, cursor: "pointer", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.receiver_name}</td>
-                        <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12 }}>{p.receiver_phone}</td>
-                        <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#0ea5e9", fontWeight: 600 }}>{p.flash_pno}</td>
-                        <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 11, color: "#6b7280" }}>{p.flash_sort_code || "—"}</td>
-                        <td style={{ padding: "9px 12px" }}>
-                          <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: fStyle.bg, color: fStyle.color, whiteSpace: "nowrap" }}>{fs}</span>
-                        </td>
-                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#374151", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.flash_detail || ""}>{p.flash_detail || "—"}</td>
-                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>{fmtFlashDate(p.flash_updated_at) || "—"}</td>
-                        <td style={{ padding: "9px 12px", fontSize: 12 }}>{sysStatus}</td>
-                        {perm.viewCOD && <td style={{ padding: "9px 12px", fontWeight: 700, color: p.cod_enabled ? "#b45309" : "#d1d5db" }}>{p.cod_enabled ? `฿${Number(p.cod_amount || 0).toLocaleString()}` : "—"}</td>}
-                        <td style={{ padding: "9px 12px", fontSize: 12, color: "#6b7280" }}>{shop?.name || "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Pagination */}
-          {rptTotalPages > 1 && (
-            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, padding: 12, borderTop: "1px solid #f3f4f6" }}>
-              <button disabled={!rptPage} onClick={() => setRptPage(p => p - 1)} style={{ padding: "6px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", cursor: !rptPage ? "not-allowed" : "pointer", opacity: !rptPage ? .4 : 1, fontSize: 13 }}>◀</button>
-              <span style={{ fontSize: 12, color: "#6b7280" }}>{rptPage + 1}/{rptTotalPages} ({filtered.length})</span>
-              <button disabled={rptPage >= rptTotalPages - 1} onClick={() => setRptPage(p => p + 1)} style={{ padding: "6px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", cursor: rptPage >= rptTotalPages - 1 ? "not-allowed" : "pointer", opacity: rptPage >= rptTotalPages - 1 ? .4 : 1, fontSize: 13 }}>▶</button>
-              <select value={rptPerPage} onChange={e => { setRptPerPage(Number(e.target.value)); setRptPage(0); }} style={{ padding: "6px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, fontFamily: "inherit", color: "#6b7280" }}>
-                <option value={100}>100 / หน้า</option>
-                <option value={300}>300 / หน้า</option>
-                <option value={500}>500 / หน้า</option>
-              </select>
-            </div>
-          )}
-        </div>
-
-        {/* Summary Footer */}
-        <div style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ background: "#ecfdf5", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
-            <div style={{ fontSize: 11, color: "#065f46", marginBottom: 2 }}>✅ จัดส่งสำเร็จ</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#059669" }}>{statusCounts["เซ็นรับแล้ว"]}</div>
-          </div>
-          <div style={{ background: "#dbeafe", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
-            <div style={{ fontSize: 11, color: "#1e40af", marginBottom: 2 }}>🚛 อยู่ระหว่างจัดส่ง</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#2563eb" }}>{statusCounts["รับพัสดุแล้ว"] + statusCounts["ขนส่ง"] + statusCounts["กำลังจัดส่ง"]}</div>
-          </div>
-          <div style={{ background: "#fee2e2", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
-            <div style={{ fontSize: 11, color: "#991b1b", marginBottom: 2 }}>↩️ ส่งคืน/คืนสำเร็จ</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#dc2626" }}>{statusCounts["ส่งคืน"] + statusCounts["คืนสำเร็จ"]}</div>
-          </div>
-          <div style={{ background: "#fef3c7", borderRadius: 10, padding: "12px 20px", flex: 1, minWidth: 150 }}>
-            <div style={{ fontSize: 11, color: "#92400e", marginBottom: 2 }}>📝 รอดำเนินการ</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#d97706" }}>{statusCounts["สร้างรายการ"]}</div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // ═══ DASHBOARD PAGE ═══
   const DashboardPage = () => {
     const [prodPeriod, setProdPeriod] = useState("today");
@@ -5108,7 +5134,7 @@ export default function FlashBackend() {
           <button onClick={() => setJtReauth(false)} style={{ position: "fixed", top: 16, right: 24, zIndex: 10001 }}>ปิด — กลับหน้าพัสดุ</button>
           <LoginScreen expectedUser={user} onLogin={(account, session) => { handleLogin(account, session); setJtReauth(false); setJtStatusErrors({}); setJtSessionRevision(v => v + 1); }} />
         </div>}
-        {!isDemo && <JtPickupAlert parcels={parcels} shops={shops} api={jtApi} visible={activePage === "parcels-jnt"} onWaitingCount={setJtWaitingCount} onStatus={updateJtStatus} onError={updateJtError} sessionRevision={jtSessionRevision} onReauthenticate={() => setJtReauth(true)} />}
+        {!isDemo && <JtPickupAlert parcels={parcels} shops={shops} api={jtApi} visible={activePage === "parcels-jnt" || activePage === "report-jnt"} onWaitingCount={setJtWaitingCount} onStatus={updateJtStatus} onError={updateJtError} sessionRevision={jtSessionRevision} onReauthenticate={() => setJtReauth(true)} />}
         {/* TOP BAR */}
         {isShippingPage && (
           <div style={{ background: "#fff", padding: "14px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 50, flexWrap: "wrap" }}>
@@ -5380,7 +5406,8 @@ export default function FlashBackend() {
           </>)}
 
           {activePage === "dashboard" && <DashboardPage />}
-          {activePage === "report" && <ReportPage />}
+          {activePage === "report" && <ReportPage parcels={parcels} shops={shops} rptPerPage={rptPerPage} setRptPerPage={setRptPerPage} rptCarrier="flash" rptShop={rptShop} setRptShop={setRptShop} rptFilter={rptFilter} setRptFilter={setRptFilter} rptSearch={rptSearch} setRptSearch={setRptSearch} rptPage={rptPage} setRptPage={setRptPage} month={month} setMonth={setMonth} loadParcels={loadParcels} perm={perm} setViewParcel={setViewParcel} />}
+          {activePage === "report-jnt" && <ReportPage parcels={parcels} shops={shops} rptPerPage={jtRptPerPage} setRptPerPage={setJtRptPerPage} rptCarrier="jnt" rptShop={jtRptShop} setRptShop={setJtRptShop} rptFilter={jtRptFilter} setRptFilter={setJtRptFilter} rptSearch={jtRptSearch} setRptSearch={setJtRptSearch} rptPage={jtRptPage} setRptPage={setJtRptPage} month={month} setMonth={setMonth} loadParcels={loadParcels} perm={perm} setViewParcel={setViewParcel} />}
           {activePage === "problems" && <ProblemPage />}
           {activePage === "notinflash" && <NotInFlashPage />}
           {activePage === "returnreceive" && <ReturnReceivePage />}
