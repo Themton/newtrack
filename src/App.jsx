@@ -5,6 +5,7 @@ import ShopAddressFields from "./ShopAddressFields.jsx";
 import JtPickupAlert from "./JtPickupAlert.jsx";
 import { jtAddress } from "./jtAddress.js";
 import { jtAddressErrors } from "./jtAddressErrors.js";
+import { matchesTracking } from "./trackingSearch.js";
 import { shopCarrierKey, otherCarrierDefaults, hasCarrierDefault } from "./shopDefaults.js";
 import { jtLabelDetails } from "./jtLabelDetails.js";
 
@@ -1470,6 +1471,7 @@ export default function FlashBackend() {
   const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [trackingOnly, setTrackingOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [showForm, setShowForm] = useState(false);
   const [editParcel, setEditParcel] = useState(null);
@@ -1766,9 +1768,14 @@ export default function FlashBackend() {
     if (codFilter === "cod") list = list.filter(p => Number(p.cod_amount) > 0);
     else if (codFilter === "nocod") list = list.filter(p => !Number(p.cod_amount));
     else if (codFilter) list = list.filter(p => Number(p.cod_amount) === Number(codFilter));
-    if (search) { const q = search.toLowerCase(); list = list.filter(p => [p.parcel_no, p.receiver_name, p.receiver_phone, p.flash_pno, p.flash_sort_code, p.receiver_province, p.receiver_address, p.remark, p.created_by_name].some(v => (v || "").toLowerCase().includes(q))); }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(p => carrierFilter === "jnt" && trackingOnly
+        ? matchesTracking(p.flash_pno, q)
+        : matchesTracking(p.flash_pno, q) || [p.parcel_no, p.receiver_name, p.receiver_phone, p.flash_sort_code, p.receiver_province, p.receiver_address, p.remark, p.created_by_name].some(v => String(v || "").toLowerCase().includes(q)));
+    }
     return list;
-  }, [carrierParcels, search, selectedShopFilter, statusFilter, codFilter]);
+  }, [carrierParcels, search, selectedShopFilter, statusFilter, codFilter, carrierFilter, trackingOnly]);
 
   const paged = filtered.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
@@ -5077,8 +5084,10 @@ export default function FlashBackend() {
             {/* ซ้าย: ค้นหา */}
             <div style={{ position: "relative", minWidth: 180, flex: 1 }}>
               <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, opacity: .4 }}>🔍</span>
-              <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="ค้นหา..." style={{ width: "100%", padding: "9px 12px 9px 36px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+              <input aria-label={carrierFilter === "jnt" && trackingOnly ? "ค้นหาเลขพัสดุ J&T" : "ค้นหาพัสดุ"} value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder={carrierFilter === "jnt" ? (trackingOnly ? "พิมพ์หรือวางเลขพัสดุ J&T…" : "ค้นหาเลขพัสดุ J&T / ชื่อ / เบอร์โทร…") : "ค้นหา..."} style={{ width: "100%", padding: "9px 12px 9px 36px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+              {carrierFilter === "jnt" && <small style={{ color: "#64748b" }}>ค้นหาในเดือนและตัวกรองที่เลือก · พบ {filtered.length} รายการ</small>}
             </div>
+            {carrierFilter === "jnt" && <select aria-label="ประเภทการค้นหา J&T" value={trackingOnly ? "tracking" : "all"} onChange={e => { setTrackingOnly(e.target.value === "tracking"); setPage(0); }} style={{ padding: 9, borderRadius: 8, border: "1px solid #e2e8f0" }}><option value="all">ค้นหาทุกข้อมูล</option><option value="tracking">ค้นเลขพัสดุ J&T</option></select>}
             <button onClick={loadParcels} style={{ padding: "9px 12px", background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>🔄</button>
             {/* เลือกเดือน — โหลดเฉพาะเดือนนี้ (ประหยัด egress) */}
             <div style={{ display: "flex", alignItems: "center", gap: 2, background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "1px 2px" }}>
