@@ -4,6 +4,7 @@ import { shopSenderLocation } from "./shopSenderLocation.js";
 import ShopAddressFields from "./ShopAddressFields.jsx";
 import JtPickupAlert from "./JtPickupAlert.jsx";
 import { jtAddress } from "./jtAddress.js";
+import { jtAddressErrors } from "./jtAddressErrors.js";
 import { shopCarrierKey, otherCarrierDefaults, hasCarrierDefault } from "./shopDefaults.js";
 import { jtLabelDetails } from "./jtLabelDetails.js";
 
@@ -1423,6 +1424,7 @@ export default function FlashBackend() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [showForm, setShowForm] = useState(false);
   const [editParcel, setEditParcel] = useState(null);
+  const [orderErrors, setOrderErrors] = useState([]);
   
   const [viewParcel, setViewParcel] = useState(null);
   const [printPreview, setPrintPreview] = useState(null); // array of parcels to preview before print
@@ -1843,7 +1845,7 @@ export default function FlashBackend() {
       const result = await saveJtOrder(p);
       await sb.broadcastChange();
       showToast(`สร้างเลข J&T สำเร็จ: ${result.data.billCode}`);
-    } catch (e) { uiAlert(e.message); }
+    } catch (e) { setOrderErrors([{ id: p.id, name: p.receiver_name, issues: jtAddressErrors(p, e.message) }]); }
     finally { setFlashLoading(null); }
   };
 
@@ -1940,7 +1942,7 @@ export default function FlashBackend() {
     if (carrier === "jnt" && targets.some(p => !shops.some(s => s.id === p.shop_id && s.is_active && s.carrier === "jnt" && JNT_APPS.includes(s.jt_app)))) { uiAlert("มีพัสดุที่ไม่ได้ผูกร้าน J&T กับบัญชี VIP"); return; }
     if (!await uiConfirm(`สร้างเลข Tracking ${carrier === "jnt" ? "J&T Express" : "Flash Express"} ${targets.length} รายการ?`)) return;
     setBatchProgress({ total: targets.length, done: 0, success: 0, errors: [] });
-    let success = 0; const errors = [];
+    let success = 0; const errors = []; const failedOrders = [];
     for (let i = 0; i < targets.length; i++) {
       const pct = Math.round(((i + 1) / targets.length) * 100);
       setGlobalLoading({ msg: `กำลังสร้างเลข Tracking ${i + 1}/${targets.length}`, progress: pct });
@@ -1955,13 +1957,15 @@ export default function FlashBackend() {
           setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...updates } : x));
           success++;
         } else { console.error("Flash API error:", JSON.stringify(result)); errors.push(`${p.receiver_name}: [code ${result.code}] ${result.message || "error"}`); }
-      } catch (e) { console.error("Flash API exception:", e); errors.push(`${p.receiver_name}: ${e.message}`); }
+      } catch (e) { console.error("Flash API exception:", e); errors.push(`${p.receiver_name}: ${e.message}`); if (carrier === "jnt") failedOrders.push({ id: p.id, name: p.receiver_name, issues: jtAddressErrors(p, e.message) }); }
       if (i % 3 === 2) await new Promise(r => setTimeout(r, 500));
     }
     setGlobalLoading(null);
     setBatchProgress(null);
     sb.broadcastChange();
     if (errors.length) {
+      if (carrier === "jnt") setOrderErrors(failedOrders);
+      else
       uiAlert(`❌ สร้างเลข Tracking สำเร็จ ${success}/${targets.length} รายการ\n\nรายการที่ไม่สำเร็จ:\n${errors.slice(0, 20).join("\n")}${errors.length > 20 ? "\n... อีก " + (errors.length - 20) + " รายการ" : ""}`);
     }
     if (success > 0) {
@@ -5532,7 +5536,12 @@ export default function FlashBackend() {
       </div></div>}
 
       {/* MODALS */}
-      {showForm && <ParcelForm initialCarrier={carrierFilter} parcel={editParcel} user={user} shops={shops} salePersons={[...new Set(parcels.map(p => (p.sale_person || "").trim()).filter(Boolean))].sort()} onClose={() => setShowForm(false)} onSave={() => { setShowForm(false); loadParcels(); }} />}
+      {orderErrors.length > 0 && !showForm && <div role="dialog" aria-label="รายการสร้างเลขไม่สำเร็จ" style={{ position: "fixed", inset: 0, background: "#0008", zIndex: 2000, display: "grid", placeItems: "center" }}><div style={{ background: "white", borderRadius: 16, padding: 24, width: "min(680px, 90vw)", maxHeight: "85vh", overflow: "auto" }}>
+        <h2>สร้างเลขไม่สำเร็จ {orderErrors.length} รายการ</h2><p>รายการที่สำเร็จแล้วไม่ต้องสร้างซ้ำ แก้ไขข้อมูลแล้วกดสร้างเลขอีกครั้ง</p>
+        {orderErrors.map(error => { const current = parcels.find(p => p.id === error.id); return <section key={error.id} style={{ borderTop: "1px solid #ddd", padding: "14px 0" }}><strong>{error.name}</strong><ul>{error.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul>{perm.edit && current && !current.flash_pno && current.status !== "cancelled" && <button onClick={() => { setEditParcel(current); setShowForm(true); }}>✏️ แก้ไขข้อมูลรายการนี้</button>}</section>; })}
+        <button onClick={() => setOrderErrors([])}>ปิด</button>
+      </div></div>}
+      {showForm && <ParcelForm initialCarrier={carrierFilter} parcel={editParcel} user={user} shops={shops} salePersons={[...new Set(parcels.map(p => (p.sale_person || "").trim()).filter(Boolean))].sort()} onClose={() => setShowForm(false)} onSave={() => { setShowForm(false); setOrderErrors(prev => prev.filter(e => e.id !== editParcel?.id)); loadParcels(); }} />}
     </div>
   );
 }
