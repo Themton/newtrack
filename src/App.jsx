@@ -6,6 +6,7 @@ import JtPickupAlert from "./JtPickupAlert.jsx";
 import { jtAddress } from "./jtAddress.js";
 import { jtAddressErrors } from "./jtAddressErrors.js";
 import { matchesTracking } from "./trackingSearch.js";
+import { publicTrackingQuery } from "./publicTrackingSearch.js";
 import { shopCarrierKey, otherCarrierDefaults, hasCarrierDefault } from "./shopDefaults.js";
 import { jtLabelDetails } from "./jtLabelDetails.js";
 
@@ -1360,17 +1361,21 @@ function PublicTracking() {
   const [q, setQ] = useState("");
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const requestId = useRef(0);
   const search = async () => {
     const term = q.trim();
     if (!term) return;
-    setLoading(true); setResults(null);
+    const id = ++requestId.current;
+    setLoading(true); setResults(null); setError("");
     try {
-      const enc = encodeURIComponent(term);
-      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?and=(or(source.is.null,source.not.in.(jnt,jnt_uat)))&or=(flash_pno.eq.${enc},receiver_phone.eq.${enc})&select=flash_pno,flash_sort_code,receiver_name,receiver_province,receiver_district,flash_status,flash_detail,flash_updated_at,created_at,status&order=created_at.desc&limit=20`;
+      const url = `${SUPABASE_URL}/rest/v1/fx_parcels?${publicTrackingQuery(term)}`;
       const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } });
-      setResults(res.ok ? await res.json() : []);
-    } catch { setResults([]); }
-    setLoading(false);
+      if (!res.ok) throw new Error("ค้นหาไม่สำเร็จ กรุณาลองอีกครั้ง");
+      const rows = await res.json();
+      if (id === requestId.current) setResults(rows);
+    } catch (e) { if (id === requestId.current) setError(e.message); }
+    finally { if (id === requestId.current) setLoading(false); }
   };
   const sColor = (fs, st) => {
     if (st === "cancelled") return { bg: "#fee2e2", color: "#991b1b", txt: "ยกเลิก" };
@@ -1387,18 +1392,20 @@ function PublicTracking() {
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 42 }}>🚚</div>
           <h1 style={{ fontSize: 26, fontWeight: 800, margin: "8px 0 2px", color: "#dc2626" }}>ติดตามพัสดุ</h1>
-          <p style={{ color: "#64748b", margin: 0, fontSize: 14 }}>บริษัทเดอะเอ็มที — กรอกเลขพัสดุ หรือ เบอร์โทรผู้รับ</p>
+          <p style={{ color: "#64748b", margin: 0, fontSize: 14 }}>บริษัทเดอะเอ็มที — ค้นหา Flash / J&T ด้วยเลขพัสดุ หรือเบอร์โทรผู้รับ</p>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
-          <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="เลขพัสดุ TH... หรือ เบอร์โทร" style={{ flex: 1, padding: "14px 18px", border: "2px solid #e2e8f0", borderRadius: 14, fontSize: 16, outline: "none", fontFamily: "inherit" }} autoFocus />
+          <input aria-label="เลขพัสดุหรือเบอร์โทรผู้รับ" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="เลขพัสดุ Flash / J&T หรือเบอร์โทร" style={{ flex: 1, minWidth: 0, padding: "14px 18px", border: "2px solid #e2e8f0", borderRadius: 14, fontSize: 16, outline: "none", fontFamily: "inherit" }} autoFocus />
           <button onClick={search} disabled={loading} style={{ padding: "14px 26px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "inherit" }}>{loading ? "⏳" : "🔍 ค้นหา"}</button>
         </div>
-        {results && results.map((p, i) => { const sc = sColor(p.flash_status, p.status); return (
+        {error && <div role="alert" style={{ color: "#b91c1c", padding: 16 }}>{error}</div>}
+        {results && results.map((p, i) => { const sc = p.source === "jnt" && !p.flash_status && p.status !== "cancelled" ? { bg: "#fef3c7", color: "#92400e", txt: "ยังไม่มีข้อมูลสถานะจากขนส่ง" } : sColor(p.flash_status, p.status); return (
           <div key={i} style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "18px 20px", marginBottom: 12, boxShadow: "0 1px 3px rgba(0,0,0,.05)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
               <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 16, color: "#4f46e5" }}>📦 {p.flash_pno || "—"}</span>
               <span style={{ padding: "5px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: sc.bg, color: sc.color }}>{sc.txt}</span>
             </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#dc2626", marginBottom: 6 }}>{p.source === "jnt" ? "J&T Express" : "Flash Express"}</div>
             <div style={{ fontSize: 14, color: "#334155" }}>ผู้รับ: {mask(p.receiver_name)}</div>
             <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>ปลายทาง: {p.receiver_district || ""} {p.receiver_province || ""}</div>
             {p.flash_detail && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 8, padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>💬 {p.flash_detail}</div>}
