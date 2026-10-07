@@ -13,7 +13,12 @@ function jtTraces(response) {
   const data = response.data;
   const traces = Array.isArray(data) ? data : data?.tracesList ?? data?.details ?? data?.traces;
   if (!Array.isArray(traces)) throw new Error("ยังไม่รองรับรูปแบบสถานะที่ J&T ส่งกลับ");
-  return traces;
+  // Production trace uses lowercase keys; webhook/older responses use camelCase.
+  return traces.map(t => t && typeof t === "object" ? {
+    ...t,
+    scanType: t.scantype ?? t.scanType,
+    scanTime: t.scantime ?? t.scanTime,
+  } : t);
 }
 
 // J&T timestamps without an offset are Thailand local time, not browser local time.
