@@ -64,7 +64,7 @@ const jtApi = {
   async tracking(body, signal) {
     const res = await fetch(`${WORKER_URL}/jt-api/tracking`, { method: "POST", headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(25000)]) });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.msg || "เชื่อมต่อ J&T ไม่สำเร็จ");
+    if (!res.ok) { const error = new Error(data.msg || `เชื่อมต่อ J&T ไม่สำเร็จ (${res.status})`); error.status = res.status; throw error; }
     return data;
   },
   headers() {
@@ -359,8 +359,8 @@ const CAN = {
 // ═══════════════════════════════════════════════════════════════
 const LOGO_SRC = "data:image/png;base64,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";
 
-function LoginScreen({ onLogin, isDemo }) {
-  const [username, setUsername] = useState("");
+function LoginScreen({ onLogin, isDemo, expectedUser }) {
+  const [username, setUsername] = useState(expectedUser?.username || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -385,6 +385,10 @@ function LoginScreen({ onLogin, isDemo }) {
       const result = await response.json().catch(() => ({}));
       if (response.ok && result.user && result.session) {
         const user = result.user;
+        if (expectedUser && (user.id !== expectedUser.id || user.role !== expectedUser.role)) {
+          setError("กรุณาใช้บัญชีเดิมและสิทธิ์เดิมเพื่อดำเนินการต่อ หากเปลี่ยนบัญชีให้ใช้เมนูออกจากระบบ");
+          setLoading(false); return;
+        }
         sb.update("fx_users", user.id, { last_login: new Date().toISOString() }).catch(() => {});
         sb.insert("fx_login_logs", { user_id: user.id, username: user.username, action: "login" }).catch(() => {});
         onLogin(user, result.session);
@@ -1474,6 +1478,22 @@ export default function FlashBackend() {
     try { const s = sessionStorage.getItem("fx_user"); return s && sessionStorage.getItem("fx_jt_session") ? JSON.parse(s) : null; } catch { return null; }
   });
   const [parcels, setParcels] = useState([]);
+  const [jtStatusErrors, setJtStatusErrors] = useState({});
+  const [jtReauth, setJtReauth] = useState(false);
+  const [jtSessionRevision, setJtSessionRevision] = useState(0);
+  const updateJtStatus = async (parcel, updates) => {
+    if (parcel.source !== "jnt" || !parcel.flash_pno) return;
+    if (Object.entries(updates).some(([key, value]) => parcel[key] !== value)) {
+      try {
+        await sb.query("fx_parcels", { method: "PATCH", filters: `id=eq.${encodeURIComponent(parcel.id)}&source=eq.jnt&flash_pno=eq.${encodeURIComponent(parcel.flash_pno)}&status=neq.cancelled`, body: updates });
+      } catch (error) { throw new Error(`ได้รับสถานะ J&T แต่บันทึกไม่ได้: ${error.message}`); }
+      setParcels(prev => prev.map(p => p.id === parcel.id && p.flash_pno === parcel.flash_pno && p.status !== "cancelled" ? { ...p, ...updates } : p));
+      setViewParcel(prev => prev?.id === parcel.id && prev.flash_pno === parcel.flash_pno ? { ...prev, ...updates } : prev);
+    }
+  };
+  const updateJtError = (parcel, message) => {
+    if (parcel) setJtStatusErrors(prev => ({ ...prev, [parcel.id]: { bill: parcel.flash_pno, message } }));
+  };
   // เดือนที่เลือกดู (โหลดเฉพาะเดือนนี้เพื่อประหยัด egress) — ค่าเริ่มต้น = เดือนปัจจุบัน
   const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [loading, setLoading] = useState(true);
@@ -5084,7 +5104,11 @@ export default function FlashBackend() {
 
       {/* ═══ MAIN CONTENT ═══ */}
       <div style={{ flex: 1, marginLeft: 200, minHeight: "100vh" }}>
-        {!isDemo && <JtPickupAlert parcels={parcels} shops={shops} api={jtApi} visible={activePage === "parcels-jnt"} onWaitingCount={setJtWaitingCount} />}
+        {jtReauth && <div role="dialog" aria-label="ยืนยันตัวตนเพื่อตรวจสถานะ J&T" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 10000, overflow: "auto" }}>
+          <button onClick={() => setJtReauth(false)} style={{ position: "fixed", top: 16, right: 24, zIndex: 10001 }}>ปิด — กลับหน้าพัสดุ</button>
+          <LoginScreen expectedUser={user} onLogin={(account, session) => { handleLogin(account, session); setJtReauth(false); setJtStatusErrors({}); setJtSessionRevision(v => v + 1); }} />
+        </div>}
+        {!isDemo && <JtPickupAlert parcels={parcels} shops={shops} api={jtApi} visible={activePage === "parcels-jnt"} onWaitingCount={setJtWaitingCount} onStatus={updateJtStatus} onError={updateJtError} sessionRevision={jtSessionRevision} onReauthenticate={() => setJtReauth(true)} />}
         {/* TOP BAR */}
         {isShippingPage && (
           <div style={{ background: "#fff", padding: "14px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 50, flexWrap: "wrap" }}>
@@ -5329,7 +5353,7 @@ export default function FlashBackend() {
                             else if (fs.includes("ขนส่ง") || fs.includes("จัดส่ง") || fs.includes("นำจ่าย")) { bg = "#dbeafe"; color = "#1e40af"; }
                             else if (fs.includes("รับพัสดุ")) { bg = "#e0f2fe"; color = "#0369a1"; }
                             return <span title={p.flash_detail || ""} style={{ padding: "3px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "help", background: bg, color }}>{cleanFlashStatus(fs)}</span>;
-                          })() : <span style={{ color: "#d1d5db", fontSize: 11 }}>—</span>}</td>
+                          })() : <span style={{ color: "#64748b", fontSize: 11 }}>{isJtParcel(p) && p.flash_pno && p.status !== "cancelled" ? "ยังไม่มีข้อมูลจาก J&T" : "—"}</span>}{isJtParcel(p) && jtStatusErrors[p.id]?.bill === p.flash_pno && jtStatusErrors[p.id]?.message && <div style={{ color: "#b45309", fontSize: 11, marginTop: 4 }}>⚠ {jtStatusErrors[p.id].message}{p.flash_status && " (แสดงสถานะล่าสุดที่ตรวจได้)"}</div>}</td>
                           <td style={{ padding: "8px 10px" }}>{p.flash_pno ? <span style={{ color: "#0ea5e9", fontWeight: 600, fontSize: 12 }}>{p.flash_pno} {p.flash_sort_code ? "📋" : ""}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
                           {perm.viewCOD && <td style={{ padding: "8px 10px", fontWeight: 700, fontSize: 13 }}>{p.cod_enabled ? <span style={{ color: "#000" }}>{Number(p.cod_amount || 0).toLocaleString()}</span> : ""}</td>}
                           <td style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600 }}>{p.sender_name || "—"}</td>
