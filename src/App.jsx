@@ -1412,6 +1412,55 @@ function PublicTracking() {
     </div>
   );
 }
+// ═══ ACTIVITY LOG PAGE — บันทึกกิจกรรม ═══
+const ActivityLogPage = () => {
+  const [logs, setLogs] = useState(null);
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const d = await sb.select("fx_activity_log", { select: "id,actor_name,action,detail,created_at", order: "created_at.desc", limit: 300 });
+        if (active) setLogs(d || []);
+      } catch { if (active) setLogs([]); }
+    })();
+    return () => { active = false; };
+  }, []);
+  const icon = (a) => (a || "").includes("ลบ") ? "🗑️" : (a || "").includes("ยกเลิก") ? "❌" : (a || "").includes("สร้าง") ? "📦" : "•";
+  const color = (a) => (a || "").includes("ลบ") ? "#dc2626" : (a || "").includes("ยกเลิก") ? "#f97316" : (a || "").includes("สร้าง") ? "#059669" : "#64748b";
+  const filtered = (logs || []).filter(l => !q || [l.actor_name, l.detail, l.action].some(v => (v || "").toLowerCase().includes(q.toLowerCase())));
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📜 บันทึกกิจกรรม</h2>
+        <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ใครสร้าง / ยกเลิก / ลบ พัสดุใบไหน เมื่อไหร่ — ย้อนหลัง 300 รายการล่าสุด</p>
+      </div>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหาชื่อผู้ใช้ / รายละเอียด / การกระทำ" style={{ width: "100%", maxWidth: 420, padding: "10px 14px", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 14, marginBottom: 16, boxSizing: "border-box" }} />
+      {logs === null && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>⏳ กำลังโหลด...</div>}
+      {logs !== null && (
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                {["เวลา", "ผู้ใช้", "การกระทำ", "รายละเอียด"].map((h, i) => <th key={i} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{filtered.map(l => (
+                <tr key={l.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "10px 14px", color: "#64748b", whiteSpace: "nowrap" }}>{new Date(l.created_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+                  <td style={{ padding: "10px 14px", fontWeight: 600 }}>{l.actor_name || "—"}</td>
+                  <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}><span style={{ color: color(l.action), fontWeight: 700 }}>{icon(l.action)} {l.action}</span></td>
+                  <td style={{ padding: "10px 14px", color: "#475569" }}>{l.detail}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {filtered.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 36 }}>📭</div><div style={{ marginTop: 8 }}>{(logs.length === 0) ? "ยังไม่มีบันทึกกิจกรรม" : "ไม่พบรายการที่ค้นหา"}</div></div>}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function FlashBackend() {
   const [user, setUser] = useState(() => {
     try { const s = sessionStorage.getItem("fx_user"); return s && sessionStorage.getItem("fx_jt_session") ? JSON.parse(s) : null; } catch { return null; }
@@ -2892,45 +2941,6 @@ export default function FlashBackend() {
     );
   };
 
-  // ═══ ACTIVITY LOG PAGE — บันทึกกิจกรรม ═══
-  const ActivityLogPage = () => {
-    const [logs, setLogs] = useState(null);
-    const [q, setQ] = useState("");
-    useEffect(() => { (async () => { try { const d = await sb.select("fx_activity_log", { select: "id,actor_name,action,detail,created_at", order: "created_at.desc", limit: 300 }); setLogs(d || []); } catch { setLogs([]); } })(); }, []);
-    const icon = (a) => (a || "").includes("ลบ") ? "🗑️" : (a || "").includes("ยกเลิก") ? "❌" : (a || "").includes("สร้าง") ? "📦" : "•";
-    const color = (a) => (a || "").includes("ลบ") ? "#dc2626" : (a || "").includes("ยกเลิก") ? "#f97316" : (a || "").includes("สร้าง") ? "#059669" : "#64748b";
-    const filtered = (logs || []).filter(l => !q || [l.actor_name, l.detail, l.action].some(v => (v || "").toLowerCase().includes(q.toLowerCase())));
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📜 บันทึกกิจกรรม</h2>
-          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ใครสร้าง / ยกเลิก / ลบ พัสดุใบไหน เมื่อไหร่ — ย้อนหลัง 300 รายการล่าสุด</p>
-        </div>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหาชื่อผู้ใช้ / รายละเอียด / การกระทำ" style={{ width: "100%", maxWidth: 420, padding: "10px 14px", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 14, marginBottom: 16, boxSizing: "border-box" }} />
-        {logs === null && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>⏳ กำลังโหลด...</div>}
-        {logs !== null && (
-          <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead><tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
-                  {["เวลา", "ผู้ใช้", "การกระทำ", "รายละเอียด"].map((h, i) => <th key={i} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>{filtered.map(l => (
-                  <tr key={l.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "10px 14px", color: "#64748b", whiteSpace: "nowrap" }}>{new Date(l.created_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
-                    <td style={{ padding: "10px 14px", fontWeight: 600 }}>{l.actor_name || "—"}</td>
-                    <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}><span style={{ color: color(l.action), fontWeight: 700 }}>{icon(l.action)} {l.action}</span></td>
-                    <td style={{ padding: "10px 14px", color: "#475569" }}>{l.detail}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-            {filtered.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 36 }}>📭</div><div style={{ marginTop: 8 }}>{(logs.length === 0) ? "ยังไม่มีบันทึกกิจกรรม" : "ไม่พบรายการที่ค้นหา"}</div></div>}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   // ═══ SUMMARY REPORT PAGE — สรุปรายงานขนส่ง ═══
   const SummaryReportPage = () => {
