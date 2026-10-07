@@ -1,10 +1,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { jtTrackingUpdate } from "./jtPickupStatus.js";
+import { jtTrackingUpdate, jtPickupStatus } from "./jtPickupStatus.js";
 
 const response = tracesList => ({ code: 1, data: { tracesList } });
 const pickup = { scanType: "รับพัสดุ", scanTime: "2026-10-07 10:00:00" };
 const delivered = { scanType: "เซ็นรับพัสดุ", scanTime: "2026-10-08 12:00:00", scanNetwork: "ปลายทาง" };
+test("production lowercase trace keys observed in Chrome are parsed by both status readers", () => {
+  const actualShape = response([
+    { scantime: "2026-10-07 15:33:07", scantype: "รับพัสดุ" },
+    { scantime: "2026-10-07 18:12:12", scantype: "จัดสั่งพัสดุ" },
+    { scantime: "2026-10-07 19:00:35", scantype: "มาถึง" },
+    { scantime: "2026-10-07 19:34:22", scantype: "จัดสั่งพัสดุ" },
+  ]);
+  assert.equal(jtPickupStatus(actualShape), "received");
+  assert.deepEqual(jtTrackingUpdate(actualShape), {
+    flash_status: "จัดสั่งพัสดุ",
+    flash_detail: "จัดสั่งพัสดุ",
+    flash_updated_at: "2026-10-07T12:34:22.000Z",
+  });
+  actualShape.data.tracesList.reverse();
+  assert.equal(jtTrackingUpdate(actualShape).flash_status, "จัดสั่งพัสดุ");
+  assert.equal(jtPickupStatus(actualShape), "received");
+});
+test("lowercase incomplete and unknown statuses still do not establish pickup", () => {
+  assert.throws(() => jtTrackingUpdate(response([{ scantype: "รับพัสดุ" }])));
+  assert.throws(() => jtPickupStatus(response([{ scantype: "unknown", scantime: "2026-10-07 15:33:07" }])));
+  assert.equal(jtTrackingUpdate(response([{ scantype: "เซ็นรับพัสดุ", scantime: "2026-10-08 12:00:00" }])).flash_status, "เซ็นรับพัสดุ");
+});
 test("latest scan is selected regardless of array order, in Thailand timezone", () => {
   for (const traces of [[pickup, delivered], [delivered, pickup]]) {
     const result = jtTrackingUpdate(response(traces));
