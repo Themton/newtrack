@@ -1474,7 +1474,7 @@ const ActivityLogPage = () => {
   );
 };
 
-function ReportPage({ parcels, shops, rptPerPage, setRptPerPage, rptCarrier, setRptCarrier, rptShop, setRptShop, rptFilter, setRptFilter, rptSearch, setRptSearch, rptPage, setRptPage, month, setMonth, loadParcels, perm, setViewParcel }) {
+function ReportPage({ parcels, shops, rptPerPage, setRptPerPage, rptCarrier, rptShop, setRptShop, rptFilter, setRptFilter, rptSearch, setRptSearch, rptPage, setRptPage, month, setMonth, loadParcels, perm, setViewParcel }) {
     const RPT_PER = rptPerPage;
     const isJnt = rptCarrier === "jnt";
     const carrierName = isJnt ? "J&T" : "Flash";
@@ -1605,7 +1605,6 @@ function ReportPage({ parcels, shops, rptPerPage, setRptPerPage, rptCarrier, set
         <div style={{ marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#111" }}>🚚 รายงานสถานะพัสดุ {carrierName}</h2>
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-            {["flash", "jnt"].map(carrier => <button key={carrier} aria-pressed={rptCarrier === carrier} onClick={() => { setRptCarrier(carrier); setRptFilter("ALL"); setRptShop(""); setRptSearch(""); setRptPage(0); }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #e5e7eb", background: rptCarrier === carrier ? "#dc2626" : "#fff", color: rptCarrier === carrier ? "#fff" : "#111", cursor: "pointer" }}>📦 {carrier === "jnt" ? "J&T" : "Flash"}</button>)}
             <input aria-label="เดือนรายงานสถานะ" type="month" value={month} onChange={e => { if (e.target.value) { setMonth(e.target.value); setRptPage(0); } }} />
           </div>
           <p style={{ margin: "8px 0 0", fontSize: 14, color: "#6b7280" }}>{isJnt ? "สถานะล่าสุดที่บันทึกจาก J&T · ตรวจซ้ำประมาณ 2 นาทีหลังจบรอบขณะเปิดเว็บ · ไม่มีข้อมูลไม่ถือว่ายังไม่เข้ารับ" : "ติดตามสถานะขนส่งแบบเรียลไทม์ — อัพเดตอัตโนมัติทุก ~2 นาที (ระบบหลังบ้าน)"}</p>
@@ -1844,7 +1843,11 @@ export default function FlashBackend() {
   const [upsellSelected, setUpsellSelected] = useState(new Set());
   const [upsellRejected, setUpsellRejected] = useState([]);
   const [rptFilter, setRptFilter] = useState("ALL");
-  const [rptCarrier, setRptCarrier] = useState("flash");
+  const [jtRptFilter, setJtRptFilter] = useState("ALL");
+  const [jtRptSearch, setJtRptSearch] = useState("");
+  const [jtRptShop, setJtRptShop] = useState("");
+  const [jtRptPage, setJtRptPage] = useState(0);
+  const [jtRptPerPage, setJtRptPerPage] = useState(100);
   const [rptSearch, setRptSearch] = useState("");
   const [rptShop, setRptShop] = useState("");
   const [rptPage, setRptPage] = useState(0);
@@ -2833,7 +2836,8 @@ export default function FlashBackend() {
     ...(perm.dashboard ? [{ key: "dashboard", label: "Dashboard", icon: "📊" }] : []),
     { key: "parcels", label: "การจัดส่ง Flash", icon: "📦" },
     { key: "parcels-jnt", label: "การจัดส่ง J&T", icon: "📦" },
-    { key: "report", label: "รายงานสถานะ", icon: "🚚" },
+    { key: "report", label: "รายงานสถานะ Flash", icon: "🚚" },
+    { key: "report-jnt", label: "รายงานสถานะ J&T", icon: "🚚" },
     { key: "notinflash", label: "แฟลชยังไม่เข้ารับ", icon: "📭" },
     ...(perm.status ? [{ key: "problems", label: "พัสดุมีปัญหา", icon: "⚠️" }] : []),
     { key: "returnreceive", label: "รับพัสดุตีกลับ", icon: "🔁" },
@@ -5130,7 +5134,7 @@ export default function FlashBackend() {
           <button onClick={() => setJtReauth(false)} style={{ position: "fixed", top: 16, right: 24, zIndex: 10001 }}>ปิด — กลับหน้าพัสดุ</button>
           <LoginScreen expectedUser={user} onLogin={(account, session) => { handleLogin(account, session); setJtReauth(false); setJtStatusErrors({}); setJtSessionRevision(v => v + 1); }} />
         </div>}
-        {!isDemo && <JtPickupAlert parcels={parcels} shops={shops} api={jtApi} visible={activePage === "parcels-jnt" || (activePage === "report" && rptCarrier === "jnt")} onWaitingCount={setJtWaitingCount} onStatus={updateJtStatus} onError={updateJtError} sessionRevision={jtSessionRevision} onReauthenticate={() => setJtReauth(true)} />}
+        {!isDemo && <JtPickupAlert parcels={parcels} shops={shops} api={jtApi} visible={activePage === "parcels-jnt" || activePage === "report-jnt"} onWaitingCount={setJtWaitingCount} onStatus={updateJtStatus} onError={updateJtError} sessionRevision={jtSessionRevision} onReauthenticate={() => setJtReauth(true)} />}
         {/* TOP BAR */}
         {isShippingPage && (
           <div style={{ background: "#fff", padding: "14px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 50, flexWrap: "wrap" }}>
@@ -5402,7 +5406,8 @@ export default function FlashBackend() {
           </>)}
 
           {activePage === "dashboard" && <DashboardPage />}
-          {activePage === "report" && <ReportPage parcels={parcels} shops={shops} rptPerPage={rptPerPage} setRptPerPage={setRptPerPage} rptCarrier={rptCarrier} setRptCarrier={setRptCarrier} rptShop={rptShop} setRptShop={setRptShop} rptFilter={rptFilter} setRptFilter={setRptFilter} rptSearch={rptSearch} setRptSearch={setRptSearch} rptPage={rptPage} setRptPage={setRptPage} month={month} setMonth={setMonth} loadParcels={loadParcels} perm={perm} setViewParcel={setViewParcel} />}
+          {activePage === "report" && <ReportPage parcels={parcels} shops={shops} rptPerPage={rptPerPage} setRptPerPage={setRptPerPage} rptCarrier="flash" rptShop={rptShop} setRptShop={setRptShop} rptFilter={rptFilter} setRptFilter={setRptFilter} rptSearch={rptSearch} setRptSearch={setRptSearch} rptPage={rptPage} setRptPage={setRptPage} month={month} setMonth={setMonth} loadParcels={loadParcels} perm={perm} setViewParcel={setViewParcel} />}
+          {activePage === "report-jnt" && <ReportPage parcels={parcels} shops={shops} rptPerPage={jtRptPerPage} setRptPerPage={setJtRptPerPage} rptCarrier="jnt" rptShop={jtRptShop} setRptShop={setJtRptShop} rptFilter={jtRptFilter} setRptFilter={setJtRptFilter} rptSearch={jtRptSearch} setRptSearch={setJtRptSearch} rptPage={jtRptPage} setRptPage={setJtRptPage} month={month} setMonth={setMonth} loadParcels={loadParcels} perm={perm} setViewParcel={setViewParcel} />}
           {activePage === "problems" && <ProblemPage />}
           {activePage === "notinflash" && <NotInFlashPage />}
           {activePage === "returnreceive" && <ReturnReceivePage />}
