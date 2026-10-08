@@ -2078,7 +2078,7 @@ export default function FlashBackend() {
     const p = CAN[user.role] || {};
     if (activePage === "dashboard" && !p.dashboard) setActivePageRaw("parcels");
     if (activePage === "evaluate" && !p.evaluate) setActivePageRaw("parcels");
-    if (activePage === "export" && !p.exportData) setActivePageRaw("parcels");
+    if (["export", "export-jnt"].includes(activePage) && !p.exportData) setActivePageRaw("parcels");
     if (["exportpno", "exportpno-jnt"].includes(activePage) && !p.exportData) setActivePageRaw("parcels");
     if (activePage === "users" && !p.users) setActivePageRaw("parcels");
   }, [user, activePage]);
@@ -3098,7 +3098,7 @@ export default function FlashBackend() {
     { key: "import", label: "นำเข้า Flash", icon: "📥" },
     { key: "import-jnt", label: "นำเข้า J&T", icon: "📥" },
     { key: "upsell", label: "Upsell", icon: "💰" },
-    ...(perm.exportData ? [{ key: "export", label: "Export ข้อมูล", icon: "📤" }] : []),
+    ...(perm.exportData ? [{ key: "export", label: "Export ข้อมูล Flash", icon: "📤" }, { key: "export-jnt", label: "Export ข้อมูล J&T", icon: "📤" }] : []),
     ...(perm.exportData ? [{ key: "exportpno", label: "Export เลข Flash", icon: "🔢" }] : []),
     ...(perm.exportData ? [{ key: "exportpno-jnt", label: "Export เลข J&T", icon: "🔢" }] : []),
     { key: "shops", label: "ร้านค้า", icon: "🏪" },
@@ -4755,7 +4755,9 @@ export default function FlashBackend() {
     );
   };
 
-  const ExportPage = () => {
+  const ExportPage = ({ carrier = "flash" }) => {
+    const carrierLabel = carrier === "jnt" ? "J&T" : "Flash";
+    const matchesCarrier = p => carrier === "jnt" ? p.source === "jnt" : !["jnt", "jnt_uat"].includes(p.source);
     const productType = (remark) => {
       if (!remark) return "(ไม่ระบุ)";
       let s = String(remark).split("ปลายทาง")[0].trim();
@@ -4768,12 +4770,13 @@ export default function FlashBackend() {
     const pct = exportPct, setPct = setExportPct;
     const loadingM = exportLoadingM, setLoadingM = setExportLoadingM;
     const loadMonth = useCallback(async (m, dFrom, dTo) => {
-      if (isDemo) { setRows(demoData); return; }
-      const key = `${m}|${dFrom || ""}|${dTo || ""}`;
+      const key = `${carrier}|${m}|${dFrom || ""}|${dTo || ""}`;
       if (exportKeyRef.current === key) return; // โหลดช่วงนี้ไว้แล้ว ไม่ต้องดึงซ้ำ
       exportKeyRef.current = key;
-      setLoadingM(true); setPct(0);
+      if (isDemo) { setRows(demoData.filter(matchesCarrier)); return; }
+      setLoadingM(true); setPct(0); setRows([]);
       try {
+        if (dFrom && dTo && dFrom > dTo) throw new Error("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด");
         let start, end;
         if (dFrom && dTo) { // เลือกวัน/ช่วง → ดึงเฉพาะช่วงนั้น (ลด egress)
           start = new Date(dFrom + "T00:00:00").toISOString();
@@ -4783,30 +4786,34 @@ export default function FlashBackend() {
           start = new Date(yy, mm - 1, 1).toISOString();
           end = new Date(yy, mm, 1).toISOString();
         }
-        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${PARCEL_COLS}&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
+        const sourceFilter = carrier === "jnt" ? "source=eq.jnt" : "or=(source.is.null,source.not.in.(jnt,jnt_uat))";
+        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${PARCEL_COLS}&${sourceFilter}&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc,id.desc`;
         // นับจำนวนก่อน แล้วยิงหน้าที่เหลือพร้อมกัน + อัปเดต %
         const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
+        if (!head.ok) throw new Error("โหลดข้อมูลไม่สำเร็จ");
         const first = await head.json();
+        if (!Array.isArray(first)) throw new Error("รูปแบบข้อมูลไม่ถูกต้อง");
         const total = parseInt((head.headers.get("content-range") || "").split("/")[1], 10) || (Array.isArray(first) ? first.length : 0);
         let all = Array.isArray(first) ? first : [];
         let done = all.length;
         const bump = (n) => { done += n; setPct(total ? Math.min(99, Math.round(done / total * 100)) : 0); };
         bump(0);
-        const pages = Math.min(40, Math.ceil(total / 1000));
+        const pages = Math.ceil(total / 1000);
         if (pages > 1) {
           const reqs = [];
           for (let p = 1; p < pages; p++) {
             const from = p * 1000;
-            reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).then(d => { bump(Array.isArray(d) ? d.length : 0); return d; }).catch(() => []));
+            reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => { if (!r.ok) throw new Error("โหลดข้อมูลไม่ครบ กรุณาลองใหม่"); return r.json(); }).then(d => { if (!Array.isArray(d)) throw new Error("รูปแบบข้อมูลไม่ถูกต้อง"); bump(d.length); return d; }));
           }
           const rest = await Promise.all(reqs);
           for (const chunk of rest) if (Array.isArray(chunk)) all = all.concat(chunk);
         }
+        if (exportKeyRef.current !== key) return;
         setPct(100);
         setRows(all);
-      } catch { setRows([]); }
-      setLoadingM(false);
-    }, []);
+      } catch (error) { if (exportKeyRef.current === key) { setRows([]); showToast(error.message || "โหลดข้อมูลไม่สำเร็จ"); } }
+      if (exportKeyRef.current === key) setLoadingM(false);
+    }, [carrier]);
     useEffect(() => { loadMonth(eMonth, exportFrom, exportTo); }, [eMonth, exportFrom, exportTo, loadMonth]);
     const goPrevMonth = () => { const [y, m] = eMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setEMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); setExportFrom(""); setExportTo(""); };
     const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -4825,15 +4832,15 @@ export default function FlashBackend() {
       return `1 – ${last} ${new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
     })();
 
-    const src = rows || [];
+    const src = (rows || []).filter(matchesCarrier);
 
     const getExportData = () => {
       let list = src;
       if (exportShop) list = list.filter(p => p.shop_id === exportShop);
       if (exportStaff) list = list.filter(p => (p.sale_person || p.created_by_name) === exportStaff);
       if (exportProduct) list = list.filter(p => productType(p.remark) === exportProduct);
-      if (exportFrom) list = list.filter(p => new Date(p.created_at) >= new Date(exportFrom));
-      if (exportTo) list = list.filter(p => new Date(p.created_at) <= new Date(exportTo + "T23:59:59"));
+      if (exportFrom) list = list.filter(p => new Date(p.created_at) >= new Date(exportFrom + "T00:00:00+07:00"));
+      if (exportTo) list = list.filter(p => new Date(p.created_at) < new Date(new Date(exportTo + "T00:00:00+07:00").getTime() + 86400000));
       return list;
     };
 
@@ -4860,10 +4867,11 @@ export default function FlashBackend() {
     }, [previewData]);
 
     const doExport = async (format) => {
+      if (loadingM || exporting) return;
       const data = getExportData();
       if (!data.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
       setExporting(true);
-
+      try {
       // ProShip format (ตรงกับไฟล์ Import) + คอลัมน์เพิ่ม
       const headers = [
         "MobileNo* เบอร์มือถือ", "Name ชื่อ", "Address ที่อยู่",
@@ -4871,7 +4879,7 @@ export default function FlashBackend() {
         "Customer FB/Line เฟส/ไลน์ลูกค้า", "SalesChannel ช่องทางจำหน่าย",
         "SalesPerson ชื่อแอดมิน", "SalePrice ราคาขาย",
         "COD* ยอดเก็บเงินปลายทาง", "Remark หมายเหตุ",
-        "Tracking", "Sort Code", "สถานะ", "สถานะแฟลช", "รายละเอียดแฟลช", "อัปเดตแฟลชล่าสุด", "ร้านค้า", "ผู้สร้างรายการ", "วันที่สร้าง", "ประเภทสินค้า",
+        "Tracking", "Sort Code", "สถานะ", `สถานะ ${carrierLabel}`, `รายละเอียด ${carrierLabel}`, `อัปเดต ${carrierLabel} ล่าสุด`, "ร้านค้า", "ผู้สร้างรายการ", "วันที่สร้าง", "ประเภทสินค้า",
       ];
       const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
       const rows = data.map(p => {
@@ -4922,7 +4930,7 @@ export default function FlashBackend() {
         if (p.cod_enabled) { prodSummary[t].cod++; prodSummary[t].codAmount += Number(p.cod_amount || 0); }
         prodSummary[t].sales += Number(p.sale_price || 0);
         const fs = p.flash_status || "";
-        if (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ")) prodSummary[t].delivered++;
+        if (carrier === "jnt" ? jtReportStatus(fs) === "เซ็นรับแล้ว" : (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ"))) prodSummary[t].delivered++;
       });
       const prodHeaders = ["สินค้า", "จำนวน", "ส่งสำเร็จ", "ยอดขายรวม", "จำนวน COD", "ยอด COD รวม"];
       const prodRows = Object.entries(prodSummary).sort((a, b) => b[1].total - a[1].total).map(([t, s]) => [t, s.total, s.delivered, s.sales, s.cod, s.codAmount]);
@@ -4934,7 +4942,7 @@ export default function FlashBackend() {
         const prodCsv = "\n\n--- สรุปแยกสินค้า ---\n" + [prodHeaders, ...prodRows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
         const blob = new Blob([bom + mainCsv + summaryCsv + prodCsv], { type: "text/csv;charset=utf-8" });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = `flash-export-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+        const a = document.createElement("a"); a.href = url; a.download = `${carrier}-export-${new Date().toISOString().slice(0,10)}.csv`; a.click();
         URL.revokeObjectURL(url);
       } else {
         const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
@@ -4953,10 +4961,11 @@ export default function FlashBackend() {
         const ws3 = XLSX.utils.aoa_to_sheet([prodHeaders, ...prodRows]);
         ws3["!cols"] = prodHeaders.map(() => ({ wch: 16 }));
         XLSX.utils.book_append_sheet(wb, ws3, "สรุปสินค้า");
-        XLSX.writeFile(wb, `flash-export-${new Date().toISOString().slice(0,10)}.xlsx`);
+        XLSX.writeFile(wb, `${carrier}-export-${new Date().toISOString().slice(0,10)}.xlsx`);
       }
-      setExporting(false);
       showToast(`Export สำเร็จ ${data.length} รายการ`);
+      } catch { uiAlert("Export ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"); }
+      finally { setExporting(false); }
     };
 
     const I = { padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit" };
@@ -4964,7 +4973,7 @@ export default function FlashBackend() {
     return (
       <div style={{ padding: 24 }}>
         <div style={{ marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📤 Export ข้อมูล</h2>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>📤 Export ข้อมูล {carrierLabel}</h2>
           <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ดาวน์โหลดข้อมูลพัสดุเป็น Excel หรือ CSV — แจกแจงตามพนักงาน</p>
         </div>
         <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
@@ -5427,7 +5436,7 @@ export default function FlashBackend() {
             </div>
           )}
           {activePage === "upsell" && UpsellPage()}
-          {activePage === "export" && <ExportPage />}
+          {["export", "export-jnt"].includes(activePage) && perm.exportData && <ExportPage carrier={activePage === "export-jnt" ? "jnt" : "flash"} />}
           {activePage === "shops" && <div style={{ padding: 24 }}><ShopManagement onClose={() => {}} onUpdate={loadShops} isDemo={isDemo} inline /></div>}
           {activePage === "users" && <div style={{ padding: 24 }}><UserManagement onClose={() => {}} isDemo={isDemo} inline /></div>}
         </div>
