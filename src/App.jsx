@@ -1,3 +1,4 @@
+import { codParcels, codDelivered } from "./codReconcile.js";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ADDR_DB, { PROVINCES } from "./addr.js";
 import { shopSenderLocation } from "./shopSenderLocation.js";
@@ -2023,6 +2024,110 @@ function ExportPnoPage({ carrier, shops, isDemo, demoData, showToast, perm }) {
     );
 }
 
+function CODReconcilePage({ carrier, parcels, shops, setParcels, isDemo, showToast, month, setMonth, loading }) {
+    const carrierName = carrier === "jnt" ? "J&T" : "Flash";
+    const [filt, setFilt] = useState("outstanding");
+    const [shop, setShop] = useState("");
+    const [sel, setSel] = useState(new Set());
+    const [busy, setBusy] = useState(false);
+    const codAll = useMemo(() => codParcels(parcels, carrier, shop), [parcels, carrier, shop]);
+    const delivered = useMemo(() => codAll.filter(p => codDelivered(p.flash_status, carrier)), [codAll, carrier]);
+    const sum = (arr) => arr.reduce((s, p) => s + Number(p.cod_amount || 0), 0);
+    const codTotal = sum(codAll), collected = sum(delivered);
+    const received = sum(delivered.filter(p => p.cod_received));
+    const outstanding = collected - received, inTransit = codTotal - collected;
+    const rows = useMemo(() => delivered.filter(p => filt === "all" || (filt === "received" ? p.cod_received : !p.cod_received)).sort((a, b) => new Date(b.flash_updated_at || b.created_at) - new Date(a.flash_updated_at || a.created_at)), [delivered, filt]);
+    const fmt = (n) => "฿" + Number(n).toLocaleString();
+    const saveReceipt = async (p, val) => {
+      const change = { cod_received: val, cod_received_at: val ? new Date().toISOString() : null };
+      if (!isDemo) await sb.update("fx_parcels", p.id, change);
+      setParcels(prev => prev.map(x => x.id === p.id ? { ...x, ...change } : x));
+    };
+    const setOne = async (p, val) => {
+      if (busy) return;
+      if (!(await uiConfirm(val ? "ยืนยันว่าได้รับเงิน COD จาก " + carrierName + " แล้ว?" : "ยกเลิกการยืนยันรับเงินรายการนี้?"))) return;
+      setBusy(true);
+      try { await saveReceipt(p, val); }
+      catch (e) { uiAlert("บันทึกไม่สำเร็จ: " + e.message); }
+      finally { setBusy(false); }
+    };
+    const confirmSel = async () => {
+      if (busy) return;
+      const targets = rows.filter(p => sel.has(p.id) && !p.cod_received);
+      if (!targets.length) return;
+      if (!(await uiConfirm("ยืนยันรับเงิน COD จาก " + carrierName + " " + targets.length + " รายการ รวม " + fmt(sum(targets)) + "?"))) return;
+      setBusy(true);
+      const failed = new Set();
+      for (const p of targets) {
+        try { await saveReceipt(p, true); } catch { failed.add(p.id); }
+      }
+      setSel(failed); setBusy(false);
+      showToast("บันทึกสำเร็จ " + (targets.length - failed.size) + " รายการ" + (failed.size ? " · ไม่สำเร็จ " + failed.size + " รายการ กรุณาลองใหม่" : ""));
+    };
+    const allSel = rows.length > 0 && rows.every(p => sel.has(p.id));
+    if (loading) return <div style={{ padding: 24 }}>กำลังโหลดข้อมูลกระทบยอด COD {carrierName}…</div>;
+    const cards = [
+      { l: "COD ทั้งหมด", v: codTotal, c: "#4f46e5", sub: codAll.length + " ใบ" },
+      { l: "ยังไม่ส่งสำเร็จ / คืน / รอตรวจสอบ", v: inTransit, c: "#f59e0b", sub: (codAll.length - delivered.length) + " ใบ" },
+      { l: "เก็บเงินได้แล้ว", v: collected, c: "#0ea5e9", sub: delivered.length + " ใบส่งสำเร็จ" },
+      { l: `${carrierName} โอนแล้ว`, v: received, c: "#10b981", sub: delivered.filter(p => p.cod_received).length + " ใบ" },
+      { l: `ค้างรับจาก ${carrierName}`, v: outstanding, c: "#dc2626", sub: delivered.filter(p => !p.cod_received).length + " ใบ" },
+    ];
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>💵 กระทบยอด COD {carrierName}</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ยอดตามสถานะส่งสำเร็จ ไม่ใช่หลักฐานการโอนเงิน · ยืนยันรับเงินเมื่อได้รับเงินจริงจาก {carrierName} เท่านั้น</p>
+        </div>
+        <label>เดือนที่สร้างพัสดุ: <input aria-label="เดือนกระทบยอด COD" type="month" value={month} disabled={busy} onChange={e => { if (e.target.value) { setMonth(e.target.value); setSel(new Set()); } }} /></label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 20 }}>
+          {cards.map((c, i) => (
+            <div key={i} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1px solid #e2e8f0", borderLeft: `4px solid ${c.c}` }}>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{c.l}</div>
+              <div style={{ fontSize: 21, fontWeight: 800, color: c.c }}>{fmt(c.v)}</div>
+              <div style={{ fontSize: 10, color: "#cbd5e1", marginTop: 2 }}>{c.sub}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+          {[["outstanding", "⏳ ค้างรับ"], ["received", "✅ รับแล้ว"], ["all", "📋 ส่งสำเร็จทั้งหมด"]].map(([k, l]) => (
+            <button key={k} onClick={() => { setFilt(k); setSel(new Set()); }} style={{ padding: "8px 16px", borderRadius: 8, border: filt === k ? "none" : "1px solid #e2e8f0", background: filt === k ? "#4f46e5" : "#fff", color: filt === k ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
+          ))}
+          {shops.length > 0 && <select value={shop} onChange={e => { setShop(e.target.value); setSel(new Set()); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }}><option value="">🏪 ทุกร้าน</option>{shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+          <div style={{ flex: 1 }} />
+          {filt !== "received" && <button onClick={confirmSel} disabled={busy || sel.size === 0} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: sel.size ? "#10b981" : "#cbd5e1", color: "#fff", fontWeight: 700, fontSize: 13, cursor: sel.size ? "pointer" : "default" }}>✅ ยืนยันรับเงินที่เลือก ({sel.size})</button>}
+        </div>
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                <th style={{ padding: "10px 12px", width: 36 }}><input type="checkbox" checked={allSel} onChange={() => setSel(allSel ? new Set() : new Set(rows.map(p => p.id)))} /></th>
+                {["วันที่ส่งสำเร็จ", "เลขพัสดุ", "ผู้รับ", "ร้านค้า", "ยอด COD", "สถานะรับเงิน"].map((h, i) => <th key={i} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{rows.map(p => (
+                <tr key={p.id} style={{ borderBottom: "1px solid #f1f5f9", background: p.cod_received ? "#f0fdf4" : "#fff" }}>
+                  <td style={{ padding: "10px 12px" }}><input type="checkbox" checked={sel.has(p.id)} onChange={() => setSel(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td>
+                  <td style={{ padding: "10px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{fmtFlashDate(p.flash_updated_at, "full") || "—"}</td>
+                  <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#4f46e5" }}>{p.flash_pno || "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{p.receiver_name}</td>
+                  <td style={{ padding: "10px 12px", color: "#64748b" }}>{(shops.find(s => s.id === p.shop_id) || {}).name || "—"}</td>
+                  <td style={{ padding: "10px 12px", fontWeight: 800, color: "#0f172a" }}>{fmt(p.cod_amount)}</td>
+                  <td style={{ padding: "10px 12px" }}>
+                    <button disabled={busy} onClick={() => setOne(p, !p.cod_received)} style={{ padding: "5px 12px", borderRadius: 20, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", background: p.cod_received ? "#d1fae5" : "#fef3c7", color: p.cod_received ? "#065f46" : "#92400e" }}>
+                      {p.cod_received ? `✅ รับแล้ว${p.cod_received_at ? " " + new Date(p.cod_received_at).toLocaleDateString("th-TH", { day: "2-digit", month: "short" }) : ""}` : "⏳ กดเมื่อรับเงิน"}
+                    </button>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {rows.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 36 }}>💸</div><div style={{ marginTop: 8 }}>{filt === "outstanding" ? "ไม่มียอดค้างรับ — เก็บครบแล้ว 🎉" : filt === "received" ? "ยังไม่มีรายการที่ยืนยันรับเงิน" : "ยังไม่มีพัสดุ COD ที่ส่งสำเร็จ"}</div></div>}
+        </div>
+      </div>
+    );
+  };
+
+
 export default function FlashBackend() {
   const [user, setUser] = useState(() => {
     try { const s = sessionStorage.getItem("fx_user"); return s && sessionStorage.getItem("fx_jt_session") ? JSON.parse(s) : null; } catch { return null; }
@@ -2079,6 +2184,7 @@ export default function FlashBackend() {
     if (activePage === "dashboard" && !p.dashboard) setActivePageRaw("parcels");
     if (activePage === "evaluate" && !p.evaluate) setActivePageRaw("parcels");
     if (["export", "export-jnt"].includes(activePage) && !p.exportData) setActivePageRaw("parcels");
+    if (["cod", "cod-jnt"].includes(activePage) && !p.viewCOD) setActivePageRaw("parcels");
     if (["exportpno", "exportpno-jnt"].includes(activePage) && !p.exportData) setActivePageRaw("parcels");
     if (activePage === "users" && !p.users) setActivePageRaw("parcels");
   }, [user, activePage]);
@@ -3094,7 +3200,7 @@ export default function FlashBackend() {
     { key: "returnreceive", label: "รับพัสดุตีกลับ", icon: "🔁" },
     ...(perm.dashboard ? [{ key: "summary", label: "สรุปรายงาน", icon: "📋" }] : []),
     ...(perm.evaluate ? [{ key: "evaluate", label: "ประเมินผล", icon: "📈" }] : []),
-    ...(perm.viewCOD ? [{ key: "cod", label: "กระทบยอด COD", icon: "💵" }] : []),
+    ...(perm.viewCOD ? [{ key: "cod", label: "กระทบยอด COD Flash", icon: "💵" }, { key: "cod-jnt", label: "กระทบยอด COD J&T", icon: "💵" }] : []),
     { key: "import", label: "นำเข้า Flash", icon: "📥" },
     { key: "import-jnt", label: "นำเข้า J&T", icon: "📥" },
     { key: "upsell", label: "Upsell", icon: "💰" },
@@ -3107,95 +3213,6 @@ export default function FlashBackend() {
   ];
 
   // ═══ COD RECONCILE PAGE — กระทบยอด COD ═══
-  const CODReconcilePage = () => {
-    const [filt, setFilt] = useState("outstanding");
-    const [shop, setShop] = useState("");
-    const [sel, setSel] = useState(new Set());
-    const [busy, setBusy] = useState(false);
-    const isDeliv = (fs) => !!fs && (fs.includes("เซ็นรับ") || fs.includes("จัดส่งสำเร็จ") || (fs.includes("สำเร็จ") && !fs.includes("ไม่สำเร็จ")));
-    const codAll = useMemo(() => parcels.filter(p => p.cod_enabled && Number(p.cod_amount) > 0 && p.status !== "cancelled" && (!shop || p.shop_id === shop)), [parcels, shop]);
-    const delivered = useMemo(() => codAll.filter(p => isDeliv(p.flash_status)), [codAll]);
-    const sum = (arr) => arr.reduce((s, p) => s + Number(p.cod_amount || 0), 0);
-    const codTotal = sum(codAll), collected = sum(delivered);
-    const received = sum(delivered.filter(p => p.cod_received));
-    const outstanding = collected - received, inTransit = codTotal - collected;
-    const rows = useMemo(() => delivered.filter(p => filt === "all" || (filt === "received" ? p.cod_received : !p.cod_received)).sort((a, b) => new Date(b.flash_updated_at || b.created_at) - new Date(a.flash_updated_at || a.created_at)), [delivered, filt]);
-    const fmt = (n) => "฿" + Number(n).toLocaleString();
-    const setOne = async (p, val) => {
-      const at = val ? new Date().toISOString() : null;
-      setParcels(prev => prev.map(x => x.id === p.id ? { ...x, cod_received: val, cod_received_at: at } : x));
-      try { if (!isDemo) await sb.update("fx_parcels", p.id, { cod_received: val, cod_received_at: at }); } catch (e) { uiAlert("บันทึกไม่สำเร็จ: " + e.message); }
-    };
-    const confirmSel = async () => {
-      const t = rows.filter(p => sel.has(p.id) && !p.cod_received);
-      if (!t.length) { uiAlert("เลือกรายการที่ยังค้างรับก่อน"); return; }
-      if (!(await uiConfirm(`ยืนยันรับเงิน COD ${t.length} รายการ\nรวม ${fmt(sum(t))}?`, { okText: "✅ ยืนยันรับเงิน" }))) return;
-      setBusy(true);
-      const at = new Date().toISOString();
-      for (const p of t) { setParcels(prev => prev.map(x => x.id === p.id ? { ...x, cod_received: true, cod_received_at: at } : x)); try { if (!isDemo) await sb.update("fx_parcels", p.id, { cod_received: true, cod_received_at: at }); } catch {} }
-      setSel(new Set()); setBusy(false); showToast(`ยืนยันรับเงินแล้ว ${t.length} รายการ`);
-    };
-    const allSel = rows.length > 0 && rows.every(p => sel.has(p.id));
-    const cards = [
-      { l: "COD ทั้งหมด", v: codTotal, c: "#4f46e5", sub: codAll.length + " ใบ" },
-      { l: "กำลังส่ง (ยังไม่เก็บ)", v: inTransit, c: "#f59e0b", sub: (codAll.length - delivered.length) + " ใบ" },
-      { l: "เก็บเงินได้แล้ว", v: collected, c: "#0ea5e9", sub: delivered.length + " ใบส่งสำเร็จ" },
-      { l: "Flash โอนแล้ว", v: received, c: "#10b981", sub: delivered.filter(p => p.cod_received).length + " ใบ" },
-      { l: "ค้างรับจาก Flash", v: outstanding, c: "#dc2626", sub: delivered.filter(p => !p.cod_received).length + " ใบ" },
-    ];
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>💵 กระทบยอด COD</h2>
-          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ติดตามเงินเก็บปลายทาง — เก็บได้แล้ว / Flash โอนแล้ว / ค้างรับ · ติ๊กยืนยันเมื่อได้รับเงินจาก Flash</p>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 20 }}>
-          {cards.map((c, i) => (
-            <div key={i} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1px solid #e2e8f0", borderLeft: `4px solid ${c.c}` }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{c.l}</div>
-              <div style={{ fontSize: 21, fontWeight: 800, color: c.c }}>{fmt(c.v)}</div>
-              <div style={{ fontSize: 10, color: "#cbd5e1", marginTop: 2 }}>{c.sub}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-          {[["outstanding", "⏳ ค้างรับ"], ["received", "✅ รับแล้ว"], ["all", "📋 ส่งสำเร็จทั้งหมด"]].map(([k, l]) => (
-            <button key={k} onClick={() => { setFilt(k); setSel(new Set()); }} style={{ padding: "8px 16px", borderRadius: 8, border: filt === k ? "none" : "1px solid #e2e8f0", background: filt === k ? "#4f46e5" : "#fff", color: filt === k ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
-          ))}
-          {shops.length > 0 && <select value={shop} onChange={e => setShop(e.target.value)} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }}><option value="">🏪 ทุกร้าน</option>{shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-          <div style={{ flex: 1 }} />
-          {filt !== "received" && <button onClick={confirmSel} disabled={busy || sel.size === 0} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: sel.size ? "#10b981" : "#cbd5e1", color: "#fff", fontWeight: 700, fontSize: 13, cursor: sel.size ? "pointer" : "default" }}>✅ ยืนยันรับเงินที่เลือก ({sel.size})</button>}
-        </div>
-        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
-                <th style={{ padding: "10px 12px", width: 36 }}><input type="checkbox" checked={allSel} onChange={() => setSel(allSel ? new Set() : new Set(rows.map(p => p.id)))} /></th>
-                {["วันที่ส่งสำเร็จ", "เลขพัสดุ", "ผู้รับ", "ร้านค้า", "ยอด COD", "สถานะรับเงิน"].map((h, i) => <th key={i} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>)}
-              </tr></thead>
-              <tbody>{rows.map(p => (
-                <tr key={p.id} style={{ borderBottom: "1px solid #f1f5f9", background: p.cod_received ? "#f0fdf4" : "#fff" }}>
-                  <td style={{ padding: "10px 12px" }}><input type="checkbox" checked={sel.has(p.id)} onChange={() => setSel(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} /></td>
-                  <td style={{ padding: "10px 12px", color: "#64748b", whiteSpace: "nowrap" }}>{new Date(fmtFlashDate(p.flash_updated_at, "full") ? p.flash_updated_at : p.created_at).toLocaleDateString("th-TH")}</td>
-                  <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#4f46e5" }}>{p.flash_pno || "—"}</td>
-                  <td style={{ padding: "10px 12px" }}>{p.receiver_name}</td>
-                  <td style={{ padding: "10px 12px", color: "#64748b" }}>{(shops.find(s => s.id === p.shop_id) || {}).name || "—"}</td>
-                  <td style={{ padding: "10px 12px", fontWeight: 800, color: "#0f172a" }}>{fmt(p.cod_amount)}</td>
-                  <td style={{ padding: "10px 12px" }}>
-                    <button onClick={() => setOne(p, !p.cod_received)} style={{ padding: "5px 12px", borderRadius: 20, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", background: p.cod_received ? "#d1fae5" : "#fef3c7", color: p.cod_received ? "#065f46" : "#92400e" }}>
-                      {p.cod_received ? `✅ รับแล้ว${p.cod_received_at ? " " + new Date(p.cod_received_at).toLocaleDateString("th-TH", { day: "2-digit", month: "short" }) : ""}` : "⏳ กดเมื่อรับเงิน"}
-                    </button>
-                  </td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-          {rows.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}><div style={{ fontSize: 36 }}>💸</div><div style={{ marginTop: 8 }}>{filt === "outstanding" ? "ไม่มียอดค้างรับ — เก็บครบแล้ว 🎉" : filt === "received" ? "ยังไม่มีรายการที่ยืนยันรับเงิน" : "ยังไม่มีพัสดุ COD ที่ส่งสำเร็จ"}</div></div>}
-        </div>
-      </div>
-    );
-  };
-
   // ═══ แฟลชยังไม่เข้ารับ — พัสดุสร้างเลขแล้วแต่ Flash ยังไม่สแกนรับ ═══
   // ═══ RETURN-RECEIVE PAGE — สแกนรับพัสดุตีกลับ ═══
   const ReturnReceivePage = () => {
@@ -5421,7 +5438,7 @@ export default function FlashBackend() {
           {activePage === "activity" && <ActivityLogPage />}
           {activePage === "summary" && <SummaryReportPage />}
           {activePage === "evaluate" && <EvaluatePage />}
-          {activePage === "cod" && <CODReconcilePage />}
+          {["cod", "cod-jnt"].includes(activePage) && perm.viewCOD && <CODReconcilePage key={activePage} carrier={activePage === "cod-jnt" ? "jnt" : "flash"} parcels={parcels} shops={shops} setParcels={setParcels} isDemo={isDemo} showToast={showToast} month={month} setMonth={setMonth} loading={loading} />}
           {["exportpno", "exportpno-jnt"].includes(activePage) && perm.exportData && <ExportPnoPage key={activePage} carrier={activePage === "exportpno-jnt" ? "jnt" : "flash"} shops={shops} isDemo={isDemo} demoData={demoData} showToast={showToast} perm={perm} />}
           {(activePage === "import" || activePage === "import-jnt") && (
             <div style={{ padding: 24 }}>
