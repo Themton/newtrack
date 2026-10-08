@@ -1763,6 +1763,266 @@ function ReportPage({ parcels, shops, rptPerPage, setRptPerPage, rptCarrier, rpt
   };
 
 
+function ExportPnoPage({ carrier, shops, isDemo, demoData, showToast, perm }) {
+    const carrierName = carrier === "jnt" ? "J&T" : "Flash";
+    const [pnoShop, setPnoShop] = useState("");
+    const [pnoFrom, setPnoFrom] = useState("");
+    const [pnoTo, setPnoTo] = useState("");
+    const [pnoSep, setPnoSep] = useState("newline");
+    const [pMonth, setPMonth] = useState(curMonthKey);
+    const [rows, setRows] = useState([]);
+    const [pct, setPct] = useState(0);
+    const [loadingM, setLoadingM] = useState(true);
+    const [loadError, setLoadError] = useState("");
+    const I = { padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit" };
+    const curMonth = curMonthKey;
+    useEffect(() => {
+      const controller = new AbortController();
+      setRows([]); setLoadingM(true); setLoadError(""); setPct(0);
+      async function load() {
+        try {
+          if (pnoFrom && pnoTo && pnoFrom > pnoTo) throw new Error("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด");
+          if (isDemo) { setRows(reportParcels(demoData, carrier)); return; }
+          const [year, mon] = pMonth.split("-").map(Number);
+          const pad = n => String(n).padStart(2, "0");
+          const start = (pnoFrom || pMonth + "-01") + "T00:00:00+07:00";
+          const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+          const endDay = pnoTo || pMonth + "-" + pad(lastDay);
+          const end = new Date(Date.parse(endDay + "T00:00:00+07:00") + 86400000).toISOString();
+          const query = new URLSearchParams({ select: PARCEL_COLS, order: "created_at.desc,id.desc", status: "neq.cancelled", flash_pno: "not.is.null" });
+          query.append("created_at", "gte." + start); query.append("created_at", "lt." + end);
+          if (carrier === "jnt") query.set("source", "eq.jnt");
+          else query.set("or", "(source.is.null,source.not.in.(jnt,jnt_uat))");
+          const all = [];
+          for (let from = 0; ; from += 1000) {
+            const response = await fetch(SUPABASE_URL + "/rest/v1/fx_parcels?" + query, { signal: controller.signal, headers: { ...sb.headers(), Prefer: "count=exact", Range: from + "-" + (from + 999) } });
+            if (!response.ok) throw new Error("โหลดข้อมูลไม่สำเร็จ (" + response.status + ")");
+            const chunk = await response.json();
+            if (!Array.isArray(chunk)) throw new Error("รูปแบบข้อมูลไม่ถูกต้อง");
+            all.push(...chunk);
+            const total = Number((response.headers.get("content-range") || "").split("/")[1]);
+            if (controller.signal.aborted) return;
+            setPct(total ? Math.min(99, Math.round(all.length / total * 100)) : 0);
+            if (!chunk.length || (Number.isFinite(total) && all.length >= total) || chunk.length < 1000) break;
+          }
+          if (!controller.signal.aborted) { setRows(all); setPct(100); }
+        } catch (error) {
+          if (!controller.signal.aborted) { setRows([]); setLoadError(error.message); }
+        } finally { if (!controller.signal.aborted) setLoadingM(false); }
+      }
+      load();
+      return () => controller.abort();
+    }, [pMonth, pnoFrom, pnoTo, carrier, isDemo, demoData]);
+    const goPrevMonth = () => { const [y, m] = pMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setPMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); setPnoFrom(""); setPnoTo(""); };
+    const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const fmtDay = (d) => `${monthOf(d)}-${String(d.getDate()).padStart(2, "0")}`;
+    const pickDay = (d) => { setPMonth(monthOf(d)); const s = fmtDay(d); setPnoFrom(s); setPnoTo(s); };
+    const allMonth = () => { setPnoFrom(""); setPnoTo(""); };
+    const isDay = (() => { const t = new Date(); const y = new Date(); y.setDate(y.getDate() - 1); if (pnoFrom && pnoFrom === pnoTo) { if (pnoFrom === fmtDay(t)) return "today"; if (pnoFrom === fmtDay(y)) return "yest"; return "day"; } return "month"; })();
+    const monthLabel = (() => { const [y, m] = pMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
+    const rangeLabel = (() => {
+      const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+      if (pnoFrom && pnoTo) return pnoFrom === pnoTo ? fmt(pnoFrom) : `${fmt(pnoFrom)} – ${fmt(pnoTo)}`;
+      if (pnoFrom) return `ตั้งแต่ ${fmt(pnoFrom)}`;
+      if (pnoTo) return `ถึง ${fmt(pnoTo)}`;
+      const [y, m] = pMonth.split("-").map(Number);
+      const last = new Date(y, m, 0).getDate();
+      return `1 – ${last} ${new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
+    })();
+
+
+    // กรองเฉพาะพัสดุที่มีเลข Tracking และไม่ถูกยกเลิก (จากเดือนที่โหลด)
+    const list = useMemo(() => {
+      let l = loadingM || loadError ? [] : reportParcels(rows || [], carrier);
+      if (pnoShop) l = l.filter(p => p.shop_id === pnoShop);
+      return l;
+    }, [rows, pnoShop, carrier, loadingM, loadError]);
+
+    // เลขพัสดุไม่ซ้ำ (เรียงตามลำดับล่าสุดก่อน ตาม parcels ที่ sort created_at.desc แล้ว)
+    const pnos = useMemo(() => {
+      const seen = new Set(); const out = [];
+      for (const p of list) { const n = String(p.flash_pno).trim(); if (n && !seen.has(n)) { seen.add(n); out.push(n); } }
+      return out;
+    }, [list]);
+
+    const sep = pnoSep === "comma" ? ", " : pnoSep === "space" ? " " : "\n";
+    const text = pnos.join(sep);
+
+    const copyText = async () => {
+      if (!perm.exportData || loadingM || loadError) return;
+      if (!pnos.length) { uiAlert("ไม่มีเลขพัสดุที่จะคัดลอก"); return; }
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast(`คัดลอก ${pnos.length} เลขพัสดุแล้ว`);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try { document.execCommand("copy"); showToast(`คัดลอก ${pnos.length} เลขพัสดุแล้ว`); }
+        catch { uiAlert("คัดลอกไม่สำเร็จ — กรุณาเลือกข้อความในกล่องแล้วคัดลอกเอง"); }
+        document.body.removeChild(ta);
+      }
+    };
+
+    const downloadTxt = () => {
+      if (!perm.exportData || loadingM || loadError) return;
+      if (!pnos.length) { uiAlert("ไม่มีเลขพัสดุที่จะดาวน์โหลด"); return; }
+      const blob = new Blob(["\uFEFF" + pnos.join("\n")], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `tracking-${carrier}-${new Date().toISOString().slice(0, 10)}.txt`; a.click();
+      URL.revokeObjectURL(url);
+      showToast(`ดาวน์โหลด ${pnos.length} เลขพัสดุแล้ว`);
+    };
+
+    // Export ครบทุกคอลัมน์/ทุกแถว เป็น Excel (.xlsx) หรือ CSV
+    const exportFull = async (format) => {
+      if (!perm.exportData || loadingM || loadError) return;
+      if (!list.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
+      const productType = (remark) => {
+        if (!remark) return "(ไม่ระบุ)";
+        let s = String(remark).split("ปลายทาง")[0].trim();
+        s = s.replace(/[0-9]+\s*$/, "").trim();
+        return s || "(ไม่ระบุ)";
+      };
+      try {
+      const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
+      const headers = ["ลำดับ", "เลขพัสดุ (Tracking)", "Sort Code", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "ตำบล", "อำเภอ", "จังหวัด", "รหัสไปรษณีย์", ...(perm.viewCOD ? ["COD"] : []), "สถานะ", `สถานะ ${carrierName}`, `รายละเอียด ${carrierName}`, `อัปเดต ${carrierName} ล่าสุด`, "ร้านค้า", "พนักงาน", "ผู้สร้าง", "วันที่สร้าง", "ประเภทสินค้า", "หมายเหตุ"];
+      const rows = list.map((p, i) => {
+        const shop = shops?.find(s => s.id === p.shop_id);
+        return [
+          i + 1,
+          p.flash_pno || "",
+          p.flash_sort_code || "",
+          p.receiver_name || "",
+          p.receiver_phone || "",
+          p.receiver_address || "",
+          p.receiver_subdistrict || "",
+          p.receiver_district || "",
+          p.receiver_province || "",
+          p.receiver_postal || "",
+          ...(perm.viewCOD ? [p.cod_enabled ? (p.cod_amount || 0) : 0] : []),
+          statusMap[p.status] || p.status || "",
+          p.flash_status || (carrier === "jnt" ? "ยังไม่มีข้อมูลสถานะ" : "สร้างรายการ"),
+          p.flash_detail || "",
+          fmtFlashDate(p.flash_updated_at, "full"),
+          shop?.name || "",
+          p.sale_person || p.created_by_name || "",
+          p.created_by_name || "",
+          p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "",
+          productType(p.remark),
+          p.remark || "",
+        ];
+      });
+      const fname = `tracking-${carrier}-${new Date().toISOString().slice(0, 10)}`;
+      if (format === "csv") {
+        const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = `${fname}.csv`; a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        ws["!cols"] = [6, 18, 12, 20, 14, 35, 14, 14, 14, 10, 10, 12, 18, 32, 18, 16, 14, 16, 18, 14, 25].map(w => ({ wch: w }));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "เลขพัสดุ");
+        XLSX.writeFile(wb, `${fname}.xlsx`);
+      }
+      showToast(`Export ${list.length} รายการแล้ว`);
+      } catch (err) {
+        console.error("Export error:", err);
+        uiAlert("Export ไม่สำเร็จ: " + (err?.message || String(err)));
+      }
+    };
+
+    const SEPS = [{ k: "newline", l: "บรรทัดละเลข" }, { k: "comma", l: "คั่นด้วย ," }, { k: "space", l: "เว้นวรรค" }];
+
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>🔢 Export เลขพัสดุ {carrierName}</h2>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ดึงเลขพัสดุ — Export เป็น Excel/CSV ครบทุกคอลัมน์ หรือคัดลอกเลขล้วน ๆ เป็น .txt</p>
+        </div>
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+
+          {/* Filters */}
+          <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>เดือน:</span>
+              <button onClick={() => { setPMonth(curMonth()); setPnoFrom(""); setPnoTo(""); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: (pMonth === curMonth() && !pnoFrom) ? "#4f46e5" : "#fff", color: pMonth === curMonth() ? "#fff" : "#475569", border: pMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
+              <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
+              <input type="month" value={pMonth} onChange={e => { if (e.target.value) { setPMonth(e.target.value); setPnoFrom(""); setPnoTo(""); } }} style={{ ...I, cursor: "pointer" }} />
+              <span style={{ width: 1, height: 24, background: "#e2e8f0", margin: "0 2px" }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>รายวัน:</span>
+              <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#4f46e5" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
+              <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#4f46e5" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
+              <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#4f46e5" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {rangeLabel}{loadingM ? ` · ⏳ กำลังโหลด ${pct}%` : ` · ${(rows || []).length} รายการ`}</span>
+              {loadingM && <span style={{ display: "inline-block", width: 140, height: 8, background: "#e2e8f0", borderRadius: 99, overflow: "hidden", verticalAlign: "middle" }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: "#4f46e5", borderRadius: 99, transition: "width .25s ease" }} /></span>}
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ร้านค้า</label>
+                <select value={pnoShop} onChange={e => setPnoShop(e.target.value)} style={{ ...I, minWidth: 150 }}>
+                  <option value="">ทุกร้าน</option>
+                  {shops?.filter(s => carrier === "jnt" ? s.carrier === "jnt" : s.carrier !== "jnt").map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ตั้งแต่วันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
+                <input type="date" value={pnoFrom} onChange={e => setPnoFrom(e.target.value)} style={I} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ถึงวันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
+                <input type="date" value={pnoTo} onChange={e => setPnoTo(e.target.value)} style={I} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>รูปแบบ</label>
+                <select value={pnoSep} onChange={e => setPnoSep(e.target.value)} style={{ ...I, minWidth: 130 }}>
+                  {SEPS.map(s => <option key={s.k} value={s.k}>{s.l}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {loadError && <p role="alert" style={{ padding: 16, color: "#b91c1c" }}>{loadError} · กรุณาเลือกช่วงวันใหม่หรือเปิดหน้านี้อีกครั้ง</p>}
+          {/* Count + Preview */}
+          <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>พบ {list.length} รายการ · {pnos.length} เลขพัสดุไม่ซ้ำ</div>
+            <textarea
+              readOnly
+              value={text}
+              placeholder="ไม่มีเลขพัสดุตามเงื่อนไขที่เลือก"
+              onFocus={e => e.target.select()}
+              style={{ width: "100%", minHeight: 260, maxHeight: 420, padding: "12px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "monospace", lineHeight: 1.6, resize: "vertical", outline: "none", background: "#f8fafc", whiteSpace: pnoSep === "newline" ? "pre" : "pre-wrap" }}
+            />
+          </div>
+
+          {/* Buttons */}
+          <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button onClick={() => exportFull("xlsx")} disabled={!list.length} style={{ flex: 1, padding: 14, background: list.length ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: list.length ? "pointer" : "not-allowed" }}>
+                📊 Export Excel (.xlsx) — ครบทุกคอลัมน์
+              </button>
+              <button onClick={() => exportFull("csv")} disabled={!list.length} style={{ flex: 1, padding: 14, background: list.length ? "#0ea5e9" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: list.length ? "pointer" : "not-allowed" }}>
+                📄 Export CSV
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button onClick={copyText} disabled={!pnos.length} style={{ flex: 1, padding: 12, background: "#fff", color: pnos.length ? "#4f46e5" : "#94a3b8", border: `1.5px solid ${pnos.length ? "#4f46e5" : "#cbd5e1"}`, borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: pnos.length ? "pointer" : "not-allowed" }}>
+                📋 คัดลอกเลขล้วน ({pnos.length})
+              </button>
+              <button onClick={downloadTxt} disabled={!pnos.length} style={{ flex: 1, padding: 12, background: "#fff", color: pnos.length ? "#334155" : "#94a3b8", border: `1.5px solid ${pnos.length ? "#cbd5e1" : "#e2e8f0"}`, borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: pnos.length ? "pointer" : "not-allowed" }}>
+                📝 ดาวน์โหลด .txt
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+}
+
 export default function FlashBackend() {
   const [user, setUser] = useState(() => {
     try { const s = sessionStorage.getItem("fx_user"); return s && sessionStorage.getItem("fx_jt_session") ? JSON.parse(s) : null; } catch { return null; }
@@ -1819,7 +2079,7 @@ export default function FlashBackend() {
     if (activePage === "dashboard" && !p.dashboard) setActivePageRaw("parcels");
     if (activePage === "evaluate" && !p.evaluate) setActivePageRaw("parcels");
     if (activePage === "export" && !p.exportData) setActivePageRaw("parcels");
-    if (activePage === "exportpno" && !p.exportData) setActivePageRaw("parcels");
+    if (["exportpno", "exportpno-jnt"].includes(activePage) && !p.exportData) setActivePageRaw("parcels");
     if (activePage === "users" && !p.users) setActivePageRaw("parcels");
   }, [user, activePage]);
   const [selectedShopFilter, setSelectedShopFilter] = useState("");
@@ -1865,22 +2125,13 @@ export default function FlashBackend() {
   const [exportStaff, setExportStaff] = useState("");
   const [exportProduct, setExportProduct] = useState("");
   const [exporting, setExporting] = useState(false);
-  // Export เลขพัสดุ (plain list) states
-  const [pnoShop, setPnoShop] = useState("");
-  const [pnoFrom, setPnoFrom] = useState("");
-  const [pnoTo, setPnoTo] = useState("");
-  const [pnoSep, setPnoSep] = useState("newline");
   const [loadPct, setLoadPct] = useState(0); // % ความคืบหน้าการโหลดพัสดุ
   const [exportPct, setExportPct] = useState(0);
-  const [pnoPct, setPnoPct] = useState(0);
   // เดือน/ข้อมูลของหน้า Export — เก็บระดับ App เพื่อไม่ให้รีเซ็ตกลับเดือนปัจจุบันเวลาหน้า re-render
   const [eMonth, setEMonth] = useState(curMonthKey);
   const [exportRows, setExportRows] = useState(null);
   const [exportLoadingM, setExportLoadingM] = useState(false);
-  const [pMonth, setPMonth] = useState(curMonthKey);
-  const [pnoRows, setPnoRows] = useState(null);
-  const [pnoLoadingM, setPnoLoadingM] = useState(false);
-  const exportKeyRef = useRef(""); const pnoKeyRef = useRef("");
+  const exportKeyRef = useRef("");
   const [summaryPeriod, setSummaryPeriod] = useState("daily");
   const [summaryFrom, setSummaryFrom] = useState(new Date().toISOString().slice(0, 10));
   const [summaryTo, setSummaryTo] = useState(new Date().toISOString().slice(0, 10));
@@ -2848,7 +3099,8 @@ export default function FlashBackend() {
     { key: "import-jnt", label: "นำเข้า J&T", icon: "📥" },
     { key: "upsell", label: "Upsell", icon: "💰" },
     ...(perm.exportData ? [{ key: "export", label: "Export ข้อมูล", icon: "📤" }] : []),
-    ...(perm.exportData ? [{ key: "exportpno", label: "Export เลขพัสดุ", icon: "🔢" }] : []),
+    ...(perm.exportData ? [{ key: "exportpno", label: "Export เลข Flash", icon: "🔢" }] : []),
+    ...(perm.exportData ? [{ key: "exportpno-jnt", label: "Export เลข J&T", icon: "🔢" }] : []),
     { key: "shops", label: "ร้านค้า", icon: "🏪" },
     ...(perm.users ? [{ key: "users", label: "จัดการผู้ใช้", icon: "👥" }] : []),
     ...(perm.users ? [{ key: "activity", label: "บันทึกกิจกรรม", icon: "📜" }] : []),
@@ -4829,260 +5081,6 @@ export default function FlashBackend() {
   };
 
   // ═══ EXPORT เลขพัสดุ PAGE — รายการเลข Tracking ล้วน ๆ (คัดลอก / ดาวน์โหลด .txt) ═══
-  const ExportPnoPage = () => {
-    const I = { padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "inherit" };
-    const curMonth = curMonthKey;
-    const rows = pnoRows, setRows = setPnoRows;
-    const pct = pnoPct, setPct = setPnoPct;
-    const loadingM = pnoLoadingM, setLoadingM = setPnoLoadingM;
-    const loadMonth = useCallback(async (m, dFrom, dTo) => {
-      if (isDemo) { setRows(demoData); return; }
-      const key = `${m}|${dFrom || ""}|${dTo || ""}`;
-      if (pnoKeyRef.current === key) return; // โหลดช่วงนี้ไว้แล้ว ไม่ต้องดึงซ้ำ
-      pnoKeyRef.current = key;
-      setLoadingM(true); setPct(0);
-      try {
-        let start, end;
-        if (dFrom && dTo) { // เลือกวัน/ช่วง → ดึงเฉพาะช่วงนั้น (ลด egress)
-          start = new Date(dFrom + "T00:00:00").toISOString();
-          const e = new Date(dTo + "T00:00:00"); e.setDate(e.getDate() + 1); end = e.toISOString();
-        } else {
-          const [yy, mm] = m.split("-").map(Number);
-          start = new Date(yy, mm - 1, 1).toISOString();
-          end = new Date(yy, mm, 1).toISOString();
-        }
-        const base = `${SUPABASE_URL}/rest/v1/fx_parcels?select=${PARCEL_COLS}&created_at=gte.${start}&created_at=lt.${end}&order=created_at.desc`;
-        // นับจำนวนก่อน แล้วยิงหน้าที่เหลือพร้อมกัน + อัปเดต %
-        const head = await fetch(base, { headers: { ...sb.headers(), Prefer: "count=exact", Range: "0-999" } });
-        const first = await head.json();
-        const total = parseInt((head.headers.get("content-range") || "").split("/")[1], 10) || (Array.isArray(first) ? first.length : 0);
-        let all = Array.isArray(first) ? first : [];
-        let done = all.length;
-        const bump = (n) => { done += n; setPct(total ? Math.min(99, Math.round(done / total * 100)) : 0); };
-        bump(0);
-        const pages = Math.min(40, Math.ceil(total / 1000));
-        if (pages > 1) {
-          const reqs = [];
-          for (let p = 1; p < pages; p++) {
-            const from = p * 1000;
-            reqs.push(fetch(base, { headers: { ...sb.headers(), Range: `${from}-${from + 999}` } }).then(r => r.json()).then(d => { bump(Array.isArray(d) ? d.length : 0); return d; }).catch(() => []));
-          }
-          const rest = await Promise.all(reqs);
-          for (const chunk of rest) if (Array.isArray(chunk)) all = all.concat(chunk);
-        }
-        setPct(100);
-        setRows(all);
-      } catch { setRows([]); }
-      setLoadingM(false);
-    }, []);
-    useEffect(() => { loadMonth(pMonth, pnoFrom, pnoTo); }, [pMonth, pnoFrom, pnoTo, loadMonth]);
-    const goPrevMonth = () => { const [y, m] = pMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); setPMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); setPnoFrom(""); setPnoTo(""); };
-    const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const fmtDay = (d) => `${monthOf(d)}-${String(d.getDate()).padStart(2, "0")}`;
-    const pickDay = (d) => { setPMonth(monthOf(d)); const s = fmtDay(d); setPnoFrom(s); setPnoTo(s); };
-    const allMonth = () => { setPnoFrom(""); setPnoTo(""); };
-    const isDay = (() => { const t = new Date(); const y = new Date(); y.setDate(y.getDate() - 1); if (pnoFrom && pnoFrom === pnoTo) { if (pnoFrom === fmtDay(t)) return "today"; if (pnoFrom === fmtDay(y)) return "yest"; return "day"; } return "month"; })();
-    const monthLabel = (() => { const [y, m] = pMonth.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" }); })();
-    const rangeLabel = (() => {
-      const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
-      if (pnoFrom && pnoTo) return pnoFrom === pnoTo ? fmt(pnoFrom) : `${fmt(pnoFrom)} – ${fmt(pnoTo)}`;
-      if (pnoFrom) return `ตั้งแต่ ${fmt(pnoFrom)}`;
-      if (pnoTo) return `ถึง ${fmt(pnoTo)}`;
-      const [y, m] = pMonth.split("-").map(Number);
-      const last = new Date(y, m, 0).getDate();
-      return `1 – ${last} ${new Date(y, m - 1, 1).toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
-    })();
-
-
-    // กรองเฉพาะพัสดุที่มีเลข Tracking และไม่ถูกยกเลิก (จากเดือนที่โหลด)
-    const list = useMemo(() => {
-      let l = (rows || []).filter(p => p.flash_pno && p.status !== "cancelled");
-      if (pnoShop) l = l.filter(p => p.shop_id === pnoShop);
-      if (pnoFrom) l = l.filter(p => new Date(p.created_at) >= new Date(pnoFrom));
-      if (pnoTo) l = l.filter(p => new Date(p.created_at) <= new Date(pnoTo + "T23:59:59"));
-      return l;
-    }, [rows, pnoShop, pnoFrom, pnoTo]);
-
-    // เลขพัสดุไม่ซ้ำ (เรียงตามลำดับล่าสุดก่อน ตาม parcels ที่ sort created_at.desc แล้ว)
-    const pnos = useMemo(() => {
-      const seen = new Set(); const out = [];
-      for (const p of list) { const n = String(p.flash_pno).trim(); if (n && !seen.has(n)) { seen.add(n); out.push(n); } }
-      return out;
-    }, [list]);
-
-    const sep = pnoSep === "comma" ? ", " : pnoSep === "space" ? " " : "\n";
-    const text = pnos.join(sep);
-
-    const copyText = async () => {
-      if (!pnos.length) { uiAlert("ไม่มีเลขพัสดุที่จะคัดลอก"); return; }
-      try {
-        await navigator.clipboard.writeText(text);
-        showToast(`คัดลอก ${pnos.length} เลขพัสดุแล้ว`);
-      } catch {
-        const ta = document.createElement("textarea");
-        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-        document.body.appendChild(ta); ta.focus(); ta.select();
-        try { document.execCommand("copy"); showToast(`คัดลอก ${pnos.length} เลขพัสดุแล้ว`); }
-        catch { uiAlert("คัดลอกไม่สำเร็จ — กรุณาเลือกข้อความในกล่องแล้วคัดลอกเอง"); }
-        document.body.removeChild(ta);
-      }
-    };
-
-    const downloadTxt = () => {
-      if (!pnos.length) { uiAlert("ไม่มีเลขพัสดุที่จะดาวน์โหลด"); return; }
-      const blob = new Blob(["\uFEFF" + pnos.join("\n")], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `tracking-${new Date().toISOString().slice(0, 10)}.txt`; a.click();
-      URL.revokeObjectURL(url);
-      showToast(`ดาวน์โหลด ${pnos.length} เลขพัสดุแล้ว`);
-    };
-
-    // Export ครบทุกคอลัมน์/ทุกแถว เป็น Excel (.xlsx) หรือ CSV
-    const exportFull = async (format) => {
-      if (!list.length) { uiAlert("ไม่มีข้อมูลที่จะ Export"); return; }
-      const productType = (remark) => {
-        if (!remark) return "(ไม่ระบุ)";
-        let s = String(remark).split("ปลายทาง")[0].trim();
-        s = s.replace(/[0-9]+\s*$/, "").trim();
-        return s || "(ไม่ระบุ)";
-      };
-      try {
-      const statusMap = { draft: "เตรียมส่ง", created: "สร้างเลขแล้ว", printed: "ปริ้นแล้ว", cancelled: "ยกเลิก" };
-      const headers = ["ลำดับ", "เลขพัสดุ (Tracking)", "Sort Code", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "ตำบล", "อำเภอ", "จังหวัด", "รหัสไปรษณีย์", "COD", "สถานะ", "สถานะแฟลช", "รายละเอียดแฟลช", "อัปเดตแฟลชล่าสุด", "ร้านค้า", "พนักงาน", "ผู้สร้าง", "วันที่สร้าง", "ประเภทสินค้า", "หมายเหตุ"];
-      const rows = list.map((p, i) => {
-        const shop = shops?.find(s => s.id === p.shop_id);
-        return [
-          i + 1,
-          p.flash_pno || "",
-          p.flash_sort_code || "",
-          p.receiver_name || "",
-          p.receiver_phone || "",
-          p.receiver_address || "",
-          p.receiver_subdistrict || "",
-          p.receiver_district || "",
-          p.receiver_province || "",
-          p.receiver_postal || "",
-          p.cod_enabled ? (p.cod_amount || 0) : 0,
-          statusMap[p.status] || p.status || "",
-          p.flash_status || "สร้างรายการ",
-          p.flash_detail || "",
-          fmtFlashDate(p.flash_updated_at, "full"),
-          shop?.name || "",
-          p.sale_person || p.created_by_name || "",
-          p.created_by_name || "",
-          p.created_at ? new Date(p.created_at).toLocaleString("th-TH") : "",
-          productType(p.remark),
-          p.remark || "",
-        ];
-      });
-      const fname = `tracking-${new Date().toISOString().slice(0, 10)}`;
-      if (format === "csv") {
-        const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = `${fname}.csv`; a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
-        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        ws["!cols"] = [6, 18, 12, 20, 14, 35, 14, 14, 14, 10, 10, 12, 18, 32, 18, 16, 14, 16, 18, 14, 25].map(w => ({ wch: w }));
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "เลขพัสดุ");
-        XLSX.writeFile(wb, `${fname}.xlsx`);
-      }
-      showToast(`Export ${list.length} รายการแล้ว`);
-      } catch (err) {
-        console.error("Export error:", err);
-        uiAlert("Export ไม่สำเร็จ: " + (err?.message || String(err)));
-      }
-    };
-
-    const SEPS = [{ k: "newline", l: "บรรทัดละเลข" }, { k: "comma", l: "คั่นด้วย ," }, { k: "space", l: "เว้นวรรค" }];
-
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>🔢 Export เลขพัสดุ</h2>
-          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>ดึงเลขพัสดุ — Export เป็น Excel/CSV ครบทุกคอลัมน์ หรือคัดลอกเลขล้วน ๆ เป็น .txt</p>
-        </div>
-        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-
-          {/* Filters */}
-          <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>เดือน:</span>
-              <button onClick={() => { setPMonth(curMonth()); setPnoFrom(""); setPnoTo(""); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: (pMonth === curMonth() && !pnoFrom) ? "#4f46e5" : "#fff", color: pMonth === curMonth() ? "#fff" : "#475569", border: pMonth === curMonth() ? "none" : "1.5px solid #e2e8f0" }}>เดือนนี้</button>
-              <button onClick={goPrevMonth} style={{ ...I, cursor: "pointer", fontWeight: 700 }}>◀ เดือนก่อน</button>
-              <input type="month" value={pMonth} onChange={e => { if (e.target.value) { setPMonth(e.target.value); setPnoFrom(""); setPnoTo(""); } }} style={{ ...I, cursor: "pointer" }} />
-              <span style={{ width: 1, height: 24, background: "#e2e8f0", margin: "0 2px" }} />
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>รายวัน:</span>
-              <button onClick={() => pickDay(new Date())} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "today" ? "#4f46e5" : "#fff", color: isDay === "today" ? "#fff" : "#475569", border: isDay === "today" ? "none" : "1.5px solid #e2e8f0" }}>วันนี้</button>
-              <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); pickDay(d); }} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "yest" ? "#4f46e5" : "#fff", color: isDay === "yest" ? "#fff" : "#475569", border: isDay === "yest" ? "none" : "1.5px solid #e2e8f0" }}>เมื่อวาน</button>
-              <button onClick={allMonth} style={{ ...I, cursor: "pointer", fontWeight: 700, background: isDay === "month" ? "#4f46e5" : "#fff", color: isDay === "month" ? "#fff" : "#475569", border: isDay === "month" ? "none" : "1.5px solid #e2e8f0" }}>ทั้งเดือน</button>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>📅 {rangeLabel}{loadingM ? ` · ⏳ กำลังโหลด ${pct}%` : ` · ${(rows || []).length} รายการ`}</span>
-              {loadingM && <span style={{ display: "inline-block", width: 140, height: 8, background: "#e2e8f0", borderRadius: 99, overflow: "hidden", verticalAlign: "middle" }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: "#4f46e5", borderRadius: 99, transition: "width .25s ease" }} /></span>}
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ร้านค้า</label>
-                <select value={pnoShop} onChange={e => setPnoShop(e.target.value)} style={{ ...I, minWidth: 150 }}>
-                  <option value="">ทุกร้าน</option>
-                  {shops?.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ตั้งแต่วันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
-                <input type="date" value={pnoFrom} onChange={e => setPnoFrom(e.target.value)} style={I} />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>ถึงวันที่ <span style={{ color: "#94a3b8", fontWeight: 400 }}>(ในเดือน)</span></label>
-                <input type="date" value={pnoTo} onChange={e => setPnoTo(e.target.value)} style={I} />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>รูปแบบ</label>
-                <select value={pnoSep} onChange={e => setPnoSep(e.target.value)} style={{ ...I, minWidth: 130 }}>
-                  {SEPS.map(s => <option key={s.k} value={s.k}>{s.l}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Count + Preview */}
-          <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>พบ {list.length} รายการ · {pnos.length} เลขพัสดุไม่ซ้ำ</div>
-            <textarea
-              readOnly
-              value={text}
-              placeholder="ไม่มีเลขพัสดุตามเงื่อนไขที่เลือก"
-              onFocus={e => e.target.select()}
-              style={{ width: "100%", minHeight: 260, maxHeight: 420, padding: "12px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontFamily: "monospace", lineHeight: 1.6, resize: "vertical", outline: "none", background: "#f8fafc", whiteSpace: pnoSep === "newline" ? "pre" : "pre-wrap" }}
-            />
-          </div>
-
-          {/* Buttons */}
-          <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button onClick={() => exportFull("xlsx")} disabled={!list.length} style={{ flex: 1, padding: 14, background: list.length ? "#059669" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: list.length ? "pointer" : "not-allowed" }}>
-                📊 Export Excel (.xlsx) — ครบทุกคอลัมน์
-              </button>
-              <button onClick={() => exportFull("csv")} disabled={!list.length} style={{ flex: 1, padding: 14, background: list.length ? "#0ea5e9" : "#94a3b8", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: list.length ? "pointer" : "not-allowed" }}>
-                📄 Export CSV
-              </button>
-            </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button onClick={copyText} disabled={!pnos.length} style={{ flex: 1, padding: 12, background: "#fff", color: pnos.length ? "#4f46e5" : "#94a3b8", border: `1.5px solid ${pnos.length ? "#4f46e5" : "#cbd5e1"}`, borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: pnos.length ? "pointer" : "not-allowed" }}>
-                📋 คัดลอกเลขล้วน ({pnos.length})
-              </button>
-              <button onClick={downloadTxt} disabled={!pnos.length} style={{ flex: 1, padding: 12, background: "#fff", color: pnos.length ? "#334155" : "#94a3b8", border: `1.5px solid ${pnos.length ? "#cbd5e1" : "#e2e8f0"}`, borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: pnos.length ? "pointer" : "not-allowed" }}>
-                📝 ดาวน์โหลด .txt
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // ═══ USERS PAGE — inline ═══
   const UsersPage = () => <div style={{ padding: 24 }}><UserManagement onClose={() => {}} isDemo={isDemo} inline /></div>;
@@ -5415,7 +5413,7 @@ export default function FlashBackend() {
           {activePage === "summary" && <SummaryReportPage />}
           {activePage === "evaluate" && <EvaluatePage />}
           {activePage === "cod" && <CODReconcilePage />}
-          {activePage === "exportpno" && <ExportPnoPage />}
+          {["exportpno", "exportpno-jnt"].includes(activePage) && perm.exportData && <ExportPnoPage key={activePage} carrier={activePage === "exportpno-jnt" ? "jnt" : "flash"} shops={shops} isDemo={isDemo} demoData={demoData} showToast={showToast} perm={perm} />}
           {(activePage === "import" || activePage === "import-jnt") && (
             <div style={{ padding: 24 }}>
               <div style={{ marginBottom: 24 }}>
