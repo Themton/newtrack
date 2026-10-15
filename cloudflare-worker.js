@@ -519,3 +519,6 @@ export default {
     return json({ error: "not found" }, 404);
   }
 };
+
+// Used by the private CRM J&T entrypoint. No credentials leave this Worker.
+export { jtRequest };
