@@ -4,12 +4,14 @@
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
 const SB_KEY ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxudnlhZnR1bXl3aWNndG90b3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNzE1NjcsImV4cCI6MjA5NTk0NzU2N30.Ymj0QMrzkFZz1QmCqbL0P5lsFmFQzswkbvsLEh3SbB4";
 
-// Short-lived J&T permission, signed only by this Worker. Never send the signing secret to the browser.
+// Bounded J&T session; account activation and role are still checked on every request.
+// Existing tokens retain their signed expiry; users must sign in once to get the new duration.
+const JT_SESSION_TTL_SECONDS = 30 * 24 * 3600;
 const sessionBytes = value => new TextEncoder().encode(value);
 const sessionBase64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const sessionKey = secret => crypto.subtle.importKey("raw", sessionBytes(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 async function issueJtSession(user, secret) {
-  const payload = sessionBase64(sessionBytes(JSON.stringify({ id: user.id, role: user.role, exp: Math.floor(Date.now() / 1000) + 8 * 3600 })));
+  const payload = sessionBase64(sessionBytes(JSON.stringify({ id: user.id, role: user.role, exp: Math.floor(Date.now() / 1000) + JT_SESSION_TTL_SECONDS })));
   const signature = await crypto.subtle.sign("HMAC", await sessionKey(secret), sessionBytes(payload));
   return payload + "." + sessionBase64(new Uint8Array(signature));
 }

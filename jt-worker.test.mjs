@@ -10,6 +10,9 @@ const env = {
 };
 const realFetch = globalThis.fetch;
 let calls = 0;
+let active = true;
+let currentRole = 'shipping';
+const realNow = Date.now;
 globalThis.fetch = async (url, options) => {
   if (new URL(url).hostname.endsWith('.supabase.co')) {
     const query = new URL(url).searchParams;
@@ -17,7 +20,7 @@ globalThis.fetch = async (url, options) => {
       const valid = query.get('username') === 'eq.shipping1' && query.get('password') === 'eq.' + createHash('sha256').update('test-password').digest('hex');
       return Response.json(valid ? [{ id: 'test-user', username: 'shipping1', role: 'shipping', display_name: 'Shipping', avatar_color: '#fff' }] : []);
     }
-    if (query.has('id')) return Response.json([{ id: 'test-user', role: 'shipping', is_active: true }]);
+    if (query.has('id')) return Response.json([{ id: 'test-user', role: currentRole, is_active: active }]);
     throw new Error('Unexpected Supabase request');
   }
   calls++;
@@ -50,6 +53,27 @@ try {
   assert.equal(credentials.user.password, undefined);
   session = credentials.session;
   assert.ok(session);
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const claims = JSON.parse(Buffer.from(session.split('.')[0], 'base64url').toString());
+  assert.ok(Math.abs(claims.exp - issuedAt - 30 * 86400) <= 1);
+  // Probe an unknown protected route: no real carrier request or shipment mutation.
+  const probe = () => worker.fetch(request('session-probe'), env);
+  Date.now = () => (claims.exp - 1) * 1000;
+  assert.notEqual((await probe()).status, 401, 'valid just before day 30');
+  Date.now = () => claims.exp * 1000;
+  assert.equal((await probe()).status, 401, 'expired at day 30');
+  Date.now = realNow;
+  active = false;
+  assert.equal((await probe()).status, 401, 'disabled account remains blocked');
+  active = true;
+  currentRole = 'tracking';
+  assert.equal((await probe()).status, 401, 'role change invalidates previous session');
+  currentRole = 'shipping';
+  const originalSession = session;
+  const changedClaims = { ...claims, exp: claims.exp + 86400 };
+  session = Buffer.from(JSON.stringify(changedClaims)).toString('base64url') + '.' + session.split('.')[1];
+  assert.equal((await probe()).status, 401, 'forged expiry remains blocked');
+  session = originalSession;
   assert.equal((await worker.fetch(request('create', false), env)).status, 401);
   assert.equal(calls, 0);
   assert.equal((await worker.fetch(request('create'), {})).status, 503);
@@ -70,4 +94,4 @@ try {
   assert.equal((await worker.fetch(request('label', true, { ...payload, type: 99 }), env)).status, 400);
   assert.equal((await worker.fetch(request('create', true, { ...payload, packageInfo: { weight: -1 } }), env)).status, 400);
   console.log('PASS: access control, both VIP credentials, J&T headers/signature, create/cancel/tracking/label, PDF decode, label size validation. No external requests.');
-} finally { globalThis.fetch = realFetch; }
+} finally { globalThis.fetch = realFetch; Date.now = realNow; }
