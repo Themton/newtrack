@@ -1,5 +1,5 @@
 name = "newtrack-proxy"
-main = "cloudflare-worker.js"
+main = "crm-enabled-worker.js"
 compatibility_date = "2026-06-02"
 preview_urls = false
 
