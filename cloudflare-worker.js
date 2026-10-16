@@ -1,4 +1,5 @@
 // ===== Flash Proxy + Auto-Sync Worker v3.3 (trackmt) =====
+import { syncJt } from './jt-background-sync.js';
 // Flash API Proxy + Supabase Proxy + Auto-Sync สถานะ Flash (รองรับ 1000+ ออเดอร์/วัน)
 
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
@@ -342,6 +343,8 @@ export default {
   async scheduled(event, env, ctx) {
     const result = await syncFlash();
     console.log("auto-sync:", JSON.stringify(result));
+    const jt = await syncJt({ query: sbQuery, trace: body => jtRequest('/webopenplatformapi/api/logistics/trace', body, env), broadcast: broadcastChange });
+    console.log('jnt-auto-sync:', JSON.stringify(jt));
   },
 
   async fetch(req, env) {

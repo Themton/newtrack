@@ -15,11 +15,12 @@ export default function JtPickupAlert({ parcels, shops, api, visible = true, onW
   const identity = JSON.stringify(targets.map(p => [p.id, p.flash_pno, p.parcel_no, shops.find(s => s.id === p.shop_id)?.jt_app]));
 
   useEffect(() => {
+    // Initial page load only displays saved data; carrier calls require a button click.
+    if (revision === 0) return;
     let stopped = false;
     let timer;
     const controller = new AbortController();
     async function check() {
-      if (document.hidden) { timer = setTimeout(check, 120000); return; }
       setBusy(true);
       setAuthError("");
       const { parcels: rows, shops: senders } = current.current;
@@ -61,15 +62,16 @@ export default function JtPickupAlert({ parcels, shops, api, visible = true, onW
           }
         }
       }
-      if (!stopped) { setBusy(false); timer = setTimeout(check, 120000); }
+      if (!stopped) setBusy(false);
     }
     check();
     return () => { stopped = true; controller.abort(); clearTimeout(timer); };
-  }, [identity, revision, api, sessionRevision]);
+  }, [revision]);
 
   const stateFor = p => {
     const key = JSON.stringify([p.flash_pno, p.parcel_no, shops.find(s => s.id === p.shop_id)?.jt_app]);
     if (hasConfirmedJtPickup(p) || confirmed.current.get(p.id) === key) return { state: "received" };
+    if (p.flash_status === "ยังไม่พบการเข้ารับ") return { state: "waiting", checkedAt: p.flash_checked_at ? new Date(p.flash_checked_at).toLocaleString("th-TH") : "ข้อมูลที่บันทึกไว้" };
     return results[p.id]?.key === key ? results[p.id] : null;
   };
   const pending = targets.filter(p => stateFor(p)?.state !== "received");
@@ -82,7 +84,7 @@ export default function JtPickupAlert({ parcels, shops, api, visible = true, onW
       <button disabled={busy} onClick={() => setRevision(v => v + 1)}>{busy ? "กำลังตรวจสถานะ…" : "ตรวจสถานะอีกครั้ง"}</button>
     </div>
     {authError && <p role="alert" style={{ color: "#9a3412" }}>{authError} · หยุดตรวจอัตโนมัติชั่วคราว <button onClick={onReauthenticate}>ยืนยันตัวตนในหน้านี้</button></p>}
-    <p style={{ fontSize: 13, color: "#92400e", margin: "8px 0 0" }}>เฉพาะเดือนที่เปิดอยู่ · ตรวจทุก 2 นาทีเฉพาะรายการที่ยังไม่ยืนยันการเข้ารับ · รับแล้วไม่ตรวจซ้ำในรอบนี้ · สถานะปริ้นแล้วไม่ถือว่าขนส่งเข้ารับ</p>
+    <p style={{ fontSize: 13, color: "#92400e", margin: "8px 0 0" }}>แสดงสถานะที่บันทึกไว้ · เซิร์ฟเวอร์ทยอยอัปเดตเบื้องหลัง · เปิดหน้าเว็บไม่เริ่มตรวจใหม่ · ปริ้นแล้วไม่ถือว่าขนส่งเข้ารับ</p>
     {expanded && <div style={{ overflowX: "auto", marginTop: 12 }}><table style={{ width: "100%", fontSize: 14 }}><thead><tr><th>เลขพัสดุ</th><th>ผู้รับ</th><th>ผลการตรวจ</th></tr></thead><tbody>{pending.map(p => { const result = stateFor(p); return <tr key={p.id}><td>{p.flash_pno}</td><td>{p.receiver_name}</td><td>{result?.state === "waiting" ? `ยังไม่พบการเข้ารับ · ตรวจเมื่อ ${result.checkedAt}` : result?.message || "รอตรวจสอบ"}</td></tr>; })}</tbody></table>{!pending.length && <p>ทุกรายการพบสถานะการรับหรือเคลื่อนย้ายพัสดุแล้ว</p>}</div>}
   </section>;
 }
