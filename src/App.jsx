@@ -2616,7 +2616,7 @@ export default function FlashBackend() {
 
   const cancelFlashOrder = async (p) => {
     if (isJtParcel(p)) {
-      if (!await uiConfirm(`ยกเลิกออเดอร์ J&T ${p.flash_pno}?`)) return;
+      if (!await uiConfirm(`ยกเลิกออเดอร์ J&T ${p.flash_pno}?\nยกเลิกได้เฉพาะก่อนขนส่งสแกนรับ และต้องได้รับการยืนยันจาก J&T`)) return;
       setFlashLoading(p.id);
       try {
         await jtApi.cancelOrder(withJtAccount(p));
@@ -3036,7 +3036,7 @@ export default function FlashBackend() {
       await Promise.all(slice.map(async (p) => {
         try {
           const result = isJtParcel(p) ? await jtApi.cancelOrder(withJtAccount(p)) : await flashApi.cancelOrder(p.flash_pno, getFlashAccount(p));
-          if (result.code === 1 || result.code === 1032) {
+          if (isJtParcel(p) ? String(result.code) === "1" : (result.code === 1 || result.code === 1032)) {
             if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" });
             setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x));
             ok++;
@@ -3049,8 +3049,9 @@ export default function FlashBackend() {
     setSelectedIds(new Set());
     try { await sb.broadcastChange(); } catch {}
     setTimeout(() => { mutating.current = false; }, 1500);
-    if (failList.length && await uiConfirm(`ยกเลิกฝั่ง Flash สำเร็จ ${ok} ใบ\nไม่สำเร็จ ${failList.length} ใบ (อาจถูกรับเข้าระบบแล้ว)\n\nต้องการทำเครื่องหมาย "ยกเลิก" ให้ ${failList.length} ใบที่เหลือเฉพาะในระบบหลังบ้านไหม?`)) {
-      const fails = parcels.filter(p => failList.includes(p.flash_pno));
+    const localFlashFails = parcels.filter(p => !isJtParcel(p) && failList.includes(p.flash_pno));
+    if (localFlashFails.length && await uiConfirm(`ยกเลิกกับขนส่งสำเร็จ ${ok} ใบ\nไม่สำเร็จ ${failList.length} ใบ\n\nทำเครื่องหมายยกเลิกเฉพาะหลังบ้านสำหรับ Flash ${localFlashFails.length} ใบหรือไม่?\nJ&T ที่ไม่ยืนยันจะไม่เปลี่ยนเป็นยกเลิก`)) {
+      const fails = localFlashFails;
       for (const p of fails) { try { if (!isDemo) await sb.update("fx_parcels", p.id, { status: "cancelled" }); setParcels(prev => prev.map(x => x.id === p.id ? { ...x, status: "cancelled" } : x)); } catch {} }
       try { await sb.broadcastChange(); } catch {}
       showToast(`ยกเลิกในระบบแล้ว ${fails.length} ใบ`);

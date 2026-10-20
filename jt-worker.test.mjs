@@ -10,6 +10,9 @@ const env = {
 };
 const realFetch = globalThis.fetch;
 let calls = 0;
+let cancelCalls = 0;
+let traceReply = { code: 1, data: { tracesList: [] } };
+let cancelCode = 1;
 let active = true;
 let currentRole = 'shipping';
 const realNow = Date.now;
@@ -36,7 +39,9 @@ globalThis.fetch = async (url, options) => {
   assert.match(options.headers.timestamp, /^\d{13}$/);
   assert.equal(JSON.parse(biz).password, env[`JT_${suffix}_BUSINESS_PASSWORD`]);
   assert.equal(JSON.parse(biz).environment, undefined);
-  const data = { billCode: 'TEST-AWB', txlogisticId: 'TEST-ORDER', base64EncodeContent: Buffer.from('%PDF-1.4\n').toString('base64') };
+  if (new URL(url).pathname.endsWith('/trace')) return Response.json(traceReply);
+  if (new URL(url).pathname.endsWith('/cancelOrder')) { cancelCalls++; return Response.json({code: cancelCode}); }
+  const data = { tracesList: [], billCode: 'TEST-AWB', txlogisticId: 'TEST-ORDER', base64EncodeContent: Buffer.from('%PDF-1.4\n').toString('base64') };
   return Response.json({ code: 1, msg: 'success', data });
 };
 const party = { name: 'Test', postCode: '10110', mobile: '0800000000', city: 'Test', prov: 'Test', address: 'Test' };
@@ -87,6 +92,16 @@ try {
     assert.equal((await res.json()).code, 1);
   }
   const tracking24 = await worker.fetch(request('tracking', true, { customerCode: 'VIP8530310124', txlogisticId: 'TEST-ORDER' }), env);
+  const baseline = cancelCalls;
+  for (const reply of [{code: 1, data: { tracesList: [{scanType: 'รับพัสดุ'}]}}, {code: 0}, {code: 1, data: {}}]) {
+    traceReply = reply;
+    assert.equal((await worker.fetch(request('cancel'), env)).status, 409);
+    assert.equal(cancelCalls, baseline, 'Blocked before carrier cancellation');
+  }
+  traceReply = {code: 1, data: {tracesList: []}};
+  cancelCode = 0;
+  assert.equal((await worker.fetch(request('cancel'), env)).status, 409, 'Carrier rejection is never success');
+  cancelCode = 1;
   assert.equal((await tracking24.json()).code, 1);
   const pdf = await worker.fetch(request('label', true, { ...payload, asPdf: true }), env);
   assert.equal(pdf.headers.get('Content-Type'), 'application/pdf');

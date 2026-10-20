@@ -1,5 +1,6 @@
 // ===== Flash Proxy + Auto-Sync Worker v3.3 (trackmt) =====
 import { syncJt } from './jt-background-sync.js';
+import { canCancelJt } from './jt-cancel-guard.js';
 // Flash API Proxy + Supabase Proxy + Auto-Sync สถานะ Flash (รองรับ 1000+ ออเดอร์/วัน)
 
 const SB_URL = "https://lnvyaftumywicgtotozp.supabase.co";
@@ -406,7 +407,13 @@ export default {
       if (env.JT_API_BASE !== "https://ylopenapi.jtexpress.co.th" || body.environment !== "production") return json({ code: 409, msg: "J&T production request or environment is not ready" }, 409);
       if (!body.customerCode || !body.txlogisticId || !body.reason) return json({ code: 400, msg: "customerCode, txlogisticId and reason are required" }, 400);
       delete body.environment;
-      try { return json(await jtRequest("/webopenplatformapi/api/order/cancelOrder", body, env)); } catch (e) { return json({ code: 500, msg: e.message }, 502); }
+      try {
+        const trace = await jtRequest("/webopenplatformapi/api/logistics/trace", { customerCode: body.customerCode, txlogisticId: body.txlogisticId, ...(body.billCode ? { billCode: body.billCode } : {}), lang: "th" }, env);
+        if (!canCancelJt(trace)) return json({ code: 409, msg: "ยกเลิกไม่ได้: พบการสแกนหรือยังยืนยันไม่ได้ว่าพัสดุไม่ถูกสแกนรับ กรุณาตรวจสอบกับ J&T" }, 409);
+        const result = await jtRequest("/webopenplatformapi/api/order/cancelOrder", body, env);
+        if (String(result?.code) !== "1") return json({ code: 409, msg: result?.msg || "J&T ยังไม่ยืนยันการยกเลิก" }, 409);
+        return json(result);
+      } catch { return json({ code: 502, msg: "ยังยืนยันการยกเลิกกับ J&T ไม่ได้ กรุณาตรวจสอบก่อนลองใหม่" }, 502); }
     }
     if (url.pathname === "/jt-api/tracking" && req.method === "POST") {
       let body;
